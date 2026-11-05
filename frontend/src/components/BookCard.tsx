@@ -46,8 +46,7 @@ export default function BookCard({ book, selectedId, onToggleSelect }: { book: B
       href={`/book/${book.id}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="group relative w-[180px] h-[270px] rounded-xl overflow-hidden cursor-pointer shadow-lg shadow-black/30 hover:shadow-xl transition-shadow duration-200"
-      style={{ opacity: book.indexed ? 1 : 0.5 }}
+      className={`group relative w-[180px] h-[270px] rounded-xl overflow-hidden cursor-pointer shadow-lg shadow-black/30 hover:shadow-xl transition-shadow duration-200${book.indexed ? "" : " opacity-50"}`}
     >
       {/* Selection checkbox */}
       {onToggleSelect && (
@@ -57,13 +56,10 @@ export default function BookCard({ book, selectedId, onToggleSelect }: { book: B
             e.stopPropagation();
             onToggleSelect(book.id);
           }}
-          disabled={!book.indexed}
           className={`absolute top-2 left-2 z-20 w-6 h-6 rounded-md flex items-center justify-center transition-all ${
             isSelected
               ? "bg-yellow-500 shadow-md"
-              : book.indexed
-                ? "bg-zinc-900/80 border border-zinc-600 hover:border-yellow-500"
-                : "bg-zinc-900/40 border border-zinc-700/50 cursor-not-allowed"
+              : "bg-zinc-900/80 border border-zinc-600 hover:border-yellow-500"
           }`}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
