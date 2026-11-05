@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+ebooklib>=0.18
+beautifulsoup4>=4.12.0
+chromadb>=0.4.0
+ollama>=0.1.0
+pyyaml>=6.0
+Pillow>=10.0.0
+python-frontmatter>=1.1.0

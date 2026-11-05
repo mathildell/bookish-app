@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  --background: #0a0a0f;
+  --foreground: #e2e8f0;
+  --muted: #64748b;
+  --accent: #ffd56b;
+  --border: #1e293b;
+  --card: #0f172a;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* HTML-rendered blurb / Calibre notes */
+.rich-text {
+  line-height: 1.7;
+}
+
+.rich-text p {
+  margin-bottom: 0.9rem;
+}
+
+.rich-text ul,
+.rich-text ol {
+  margin: 0 0 0.9rem 1.25rem;
+  padding-left: 0.25rem;
+}
+
+.rich-text ul { list-style: disc; }
+.rich-text ol { list-style: decimal; }
+
+.rich-text li {
+  margin-bottom: 0.4rem;
+}
+
+.rich-text h1,
+.rich-text h2,
+.rich-text h3,
+.rich-text h4,
+.rich-text h5,
+.rich-text h6 {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.rich-text blockquote {
+  margin: 0 0 0.9rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid #3f3f46;
+  color: #a1a1aa;
+}
+
+.rich-text > :last-child {
+  margin-bottom: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
