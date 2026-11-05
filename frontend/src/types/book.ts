@@ -36,6 +36,7 @@ export interface BooksListResponse {
   cards: BookCard[];
   total: number;
   offset: number;
+  indexed_total: number;
 }
 
 // Chat types

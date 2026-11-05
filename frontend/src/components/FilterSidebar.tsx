@@ -2,7 +2,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchFilterMetadata } from "@/lib/api";
-import type { SortOption } from "@/components/FilterSidebar";
+
+export type SortOption = "date_added_desc" | "date_added_asc" | "date_read_desc" | "date_read_asc";
+export type Filters = {
+  query: string;
+  status: string | null;
+  indexed: boolean | null;
+  sort: SortOption;
+  tags: Record<string, boolean>;
+};
 
 const TAG_CHECKS = ["ARC", "monthly-tbr", "fav", "nonfic"];
 
@@ -26,33 +34,38 @@ export default function FilterSidebar({
     queryFn: fetchFilterMetadata,
   });
 
-  const statuses = data?.statuses ?? [];
+  const STATUS_LABELS: Record<string, string> = {
+    dnf: "Did not finish",
+    read: "Read",
+    to_read: "TBR",
+    "to-read": "TBR",
+  };
+
+  const statuses = (data?.statuses ?? []).filter(
+    (s: string) => s !== "wont-read" && s !== "won't-read"
+  );
+
+  const statusLabel = (s: string): string => {
+    const key = s.includes("_") ? s : s;
+    // Try both snake_case and kebab-case
+    const mapped = STATUS_LABELS[s] ?? STATUS_LABELS[s.replace(/-/g, "_")] ?? s;
+    return mapped.charAt(0).toUpperCase() + mapped.slice(1);
+  };
 
   return (
     <aside className="w-56 flex-shrink-0 space-y-5">
-      {/* Status filter */}
+      {/* Sort control */}
       <section>
-        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Status</label>
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio" name="status-filter"
-              checked={filters.status === null}
-              onChange={() => setFilters((f) => ({ ...f, status: null }))}
-              className="accent-yellow-500"
-            />All
-          </label>
-          {statuses.map((s: string) => (
-            <label key={s} className="flex items-center gap-2 text-sm">
-              <input
-                type="radio" name="status-filter"
-                checked={filters.status === s}
-                onChange={() => setFilters((f) => ({ ...f, status: s }))}
-                className="accent-yellow-500"
-              />{s}
-            </label>
+        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Sort by</label>
+        <select
+          value={filters.sort}
+          onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as SortOption }))}
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
-        </div>
+        </select>
       </section>
 
       {/* Index filter */}
@@ -86,18 +99,29 @@ export default function FilterSidebar({
         </div>
       </section>
 
-      {/* Sort control */}
+      {/* Status filter */}
       <section>
-        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Sort by</label>
-        <select
-          value={filters.sort}
-          onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as SortOption }))}
-          className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
-        >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Status</label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="radio" name="status-filter"
+              checked={filters.status === null}
+              onChange={() => setFilters((f) => ({ ...f, status: null }))}
+              className="accent-yellow-500"
+            />All
+          </label>
+          {statuses.map((s: string) => (
+            <label key={s} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio" name="status-filter"
+                checked={filters.status === s}
+                onChange={() => setFilters((f) => ({ ...f, status: s }))}
+                className="accent-yellow-500"
+              />{statusLabel(s)}
+            </label>
           ))}
-        </select>
+        </div>
       </section>
 
       {/* Tag checkboxes */}

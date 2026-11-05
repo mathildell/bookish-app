@@ -47,6 +47,7 @@ class BooksListResponse(BaseModel):
     cards: list[BookCard]
     total: int
     offset: int
+    indexed_total: int = 0
 
 
 # --------------------------------------------------------------------------- #

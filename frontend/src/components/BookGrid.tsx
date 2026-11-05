@@ -16,11 +16,12 @@ interface Props {
   sort: SortOption;
   tags: Record<string, boolean>;
   totalRef?: React.MutableRefObject<number>;
+  indexedRef?: React.MutableRefObject<number>;
   selectedIds?: number[];
   onToggleSelect?: (id: number) => void;
 }
 
-export default function BookGrid({ query, status, indexed, sort, tags, totalRef, selectedIds = [], onToggleSelect }: Props) {
+export default function BookGrid({ query, status, indexed, sort, tags, totalRef, indexedRef, selectedIds = [], onToggleSelect }: Props) {
   const selectedTagKeys = Object.keys(tags).filter((k) => tags[k]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -58,6 +59,9 @@ export default function BookGrid({ query, status, indexed, sort, tags, totalRef,
   const allCards = data?.pages.flatMap((p) => p.cards);
   if (totalRef && data?.pages.length) {
     totalRef.current = data.pages[data.pages.length - 1].total;
+  }
+  if (indexedRef && data?.pages.length) {
+    indexedRef.current = data.pages[data.pages.length - 1].indexed_total;
   }
 
   if (isLoading) {

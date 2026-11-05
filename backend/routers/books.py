@@ -168,7 +168,8 @@ async def list_books(
     filtered.sort(key=_sort_key, reverse=reverse)
 
     cards = [_book_to_card(b, indexed_ids) for b in filtered[offset : offset + limit]]
-    return BooksListResponse(cards=cards, total=len(filtered), offset=offset)
+    indexed_total = sum(1 for b in filtered if b.calibre_id in indexed_ids)
+    return BooksListResponse(cards=cards, total=len(filtered), offset=offset, indexed_total=indexed_total)
 
 
 @router.get("/books/{calibre_id}")
