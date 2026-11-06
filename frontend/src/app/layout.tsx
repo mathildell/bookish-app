@@ -20,7 +20,7 @@ function Nav() {
   ];
 
   return (
-    <nav className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur supports-[backdrop-filter]:bg-zinc-950/60">
+    <nav className="sticky top-0 z-[60] border-b border-zinc-800 bg-zinc-950/90 pt-2 backdrop-blur-md supports-[backdrop-filter]:bg-zinc-950/80">
       <div className="max-w-7xl mx-auto px-4 flex h-14 items-center gap-6">
         <Link href="/" className="text-xl font-bold tracking-tight text-yellow-400 mr-4 select-none">
           BookishApp
@@ -45,7 +45,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <Providers>
           <Nav />
-          <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+          <div className="bg-[#0a0a0f]" style={{ height: "calc(100vh_-_3.5rem)" }}>
+            <main className="max-w-7xl mx-auto h-full px-4 py-6">{children}</main>
+          </div>
         </Providers>
       </body>
     </html>

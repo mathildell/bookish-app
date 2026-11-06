@@ -1,35 +1,27 @@
 """FastAPI entry point for BookishApp."""
 
-from pathlib import Path
-import yaml
-import os
-import atexit
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from backend.dependencies import get_settings, init_services, shutdown_services
-from backend.routers import books, chat, ingest, settings as settings_router
+from backend.routers import books, chat, ingest, settings as settings_router, lists
 
 
-app = FastAPI(title="BookishApp API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_services()
+    yield
+    shutdown_services()
 
-# CORS not needed — Next.js rewrites proxy to backend directly
-# app.add_middleware(...)
+
+app = FastAPI(title="BookishApp API", lifespan=lifespan)
 
 app.include_router(books.router, prefix="/api", tags=["books"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(ingest.router, prefix="/api", tags=["index/ingest"])
 app.include_router(settings_router.router, prefix="/api", tags=["settings"])
-
-
-@app.on_event("startup")
-async def startup():
-    init_services()
-
-@app.on_event("shutdown")
-async def shutdown():
-    shutdown_services()
+app.include_router(lists.router, prefix="/api", tags=["lists"])
 
 
 @app.get("/api/health")

@@ -101,10 +101,6 @@ export default function ChatInterface({
       ]);
     } finally {
       setIsStreaming(false);
-
-      // Trim history to last 8 turns (16 messages)
-      const updated = [...messages, userMsg];
-      if (updated.length > 18) setMessages(updated.slice(-16));
     }
   }, [input, isStreaming, messages, calibreIds, scope]);
 

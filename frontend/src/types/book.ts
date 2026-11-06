@@ -37,6 +37,7 @@ export interface BooksListResponse {
   total: number;
   offset: number;
   indexed_total: number;
+  indexed_unknown?: boolean; // true when ChromaDB is down and index status may be unreliable
 }
 
 // Chat types

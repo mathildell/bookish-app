@@ -48,6 +48,7 @@ class BooksListResponse(BaseModel):
     total: int
     offset: int
     indexed_total: int = 0
+    indexed_unknown: bool = False  # true when ChromaDB is down and index status can't be trusted
 
 
 # --------------------------------------------------------------------------- #
@@ -81,10 +82,32 @@ class ChatRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Lists                                                                       #
+# --------------------------------------------------------------------------- #
+
+class BookList(BaseModel):
+    """A user-created list of books."""
+    id: int
+    name: str
+    book_ids: list[int] = []
+
+
+class CreateListRequest(BaseModel):
+    name: str
+
+
+class UpdateListRequest(BaseModel):
+    """Patch a list by ID. Only supplied fields are updated."""
+    name: Optional[str] = None
+    book_ids: Optional[list[int]] = None
+
+
+# --------------------------------------------------------------------------- #
 # Settings                                                                    #
 # --------------------------------------------------------------------------- #
 
 class AppSettingsResponse(BaseModel):
+    """Full settings returned to the frontend, including computed genre categories."""
     calibre_db_path: str
     obsidian_vault_path: str
     chroma_db_path: str
@@ -101,6 +124,7 @@ class AppSettingsResponse(BaseModel):
 
 
 class AppSettingsUpdate(BaseModel):
+    """Patch settings. Only supplied fields are updated."""
     calibre_db_path: Optional[str] = None
     obsidian_vault_path: Optional[str] = None
     chroma_db_path: Optional[str] = None

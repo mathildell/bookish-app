@@ -1,4 +1,5 @@
 import type { BookCard, BooksListResponse } from "@/types/book";
+import { useQuery } from "@tanstack/react-query";
 
 const BASE = "/api";
 
@@ -19,7 +20,7 @@ function qs(params: QueryParams): string {
 export async function fetchBooks(
   page: number,
   pageSize: number,
-  { query = "", status, indexed, sort, tags = [] }: { query?: string; status?: string; indexed?: boolean | null; sort?: string; tags?: string[] } = {}
+  { query = "", status, indexed, sort, tags, list_id }: { query?: string; status?: string; indexed?: boolean | null; sort?: string; tags?: string[]; list_id?: number } = {}
 ): Promise<BooksListResponse> {
   const params: QueryParams = {
     offset: page * pageSize,
@@ -28,11 +29,21 @@ export async function fetchBooks(
     status,
     indexed,
     sort,
-    selected_tags: tags.length ? tags.join(",") : undefined,
+    selected_tags: tags?.length ? tags.join(",") : undefined,
+    list_id,
   };
-  const res = await fetch(`${BASE}/books${qs(params)}`);
-  if (!res.ok) throw new Error(`Failed to fetch books: ${res.statusText}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${BASE}/books${qs(params)}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Failed to fetch books: ${res.statusText}`);
+    return res.json();
+  } catch (e: unknown) {
+    if ((e as DOMException).name === "AbortError") throw new Error("Request timed out. Please try again.");
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function fetchBook(id: number) {
@@ -141,7 +152,9 @@ export async function* batchIndexBooks(
           }
           onEvent?.(event);
           yield event;
-        } catch {}
+        } catch (e) {
+          console.warn("Malformed batch-index SSE event:", line, e);
+        }
       }
     }
   }
@@ -187,7 +200,9 @@ export async function* streamChat(
           if (data.token !== undefined) yield { type: "token", text: data.token };
           else if (data.done) yield { type: "done", answer: data.answer, citations: data.citations };
           else if (data.error) yield { type: "error", error: data.error };
-        } catch {}
+        } catch (e) {
+          console.warn("Malformed chat SSE event:", line, e);
+        }
       }
     }
   }
@@ -209,4 +224,59 @@ export async function deleteObsidianReview(calibreId: number) {
   const res = await fetch(`${BASE}/obsidian/${calibreId}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete review");
   return res.json();
+}
+
+// ----- Lists -----
+
+export type BookList = { id: number; name: string; book_ids: number[] };
+
+export async function fetchLists(): Promise<BookList[]> {
+  const res = await fetch(`${BASE}/lists`);
+  if (!res.ok) throw new Error(`Failed to fetch lists: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createList(name: string): Promise<BookList> {
+  const res = await fetch(`${BASE}/lists`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Failed to create list: ${res.statusText}`);
+  return res.json();
+}
+
+export async function renameList(id: number, name: string): Promise<BookList> {
+  const res = await fetch(`${BASE}/lists/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to rename list");
+  return res.json();
+}
+
+export async function setListBooks(id: number, bookIds: number[]): Promise<BookList> {
+  const res = await fetch(`${BASE}/lists/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ book_ids: bookIds }),
+  });
+  if (!res.ok) throw new Error("Failed to update list books");
+  return res.json();
+}
+
+export async function deleteList(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/lists/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete list");
+  return res.json();
+}
+
+// ----- Custom hooks -----
+
+export function useBookLists() {
+  return useQuery({
+    queryKey: ["bookLists"],
+    queryFn: fetchLists,
+  });
 }

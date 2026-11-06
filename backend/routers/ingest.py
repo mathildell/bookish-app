@@ -32,10 +32,10 @@ async def index_book(calibre_id: int):
             steps.append(p.current_step)
 
     success = ingestor.index_book(rec, progress_callback=_cb)
-    deps.refresh_indexed_cache()
 
     if not success or errors:
         raise HTTPException(status_code=500, detail=", ".join(errors))
+    deps.mark_indexed({calibre_id})
     return {"ok": True, "message": f"Indexed {rec.title}", "chunks": len(steps)}
 
 
@@ -44,13 +44,13 @@ async def unindex_book(calibre_id: int):
     """Remove a book's embeddings from ChromaDB."""
     ingestor = deps.get_ingestor()
     ingestor.delete_book(calibre_id)
-    deps.refresh_indexed_cache()
+    deps.mark_unindexed({calibre_id})
     return {"ok": True, "message": f"Removed calibre_id={calibre_id} from index"}
 
 
-def _sse_event(data: dict):
-    """Yield a single SSE event."""
-    yield f"data: {_json.dumps(data)}\n\n"
+def _sse_event(data: dict) -> str:
+    """Format a single SSE event (must be a string, not a generator, to be streamed)."""
+    return f"data: {_json.dumps(data)}\n\n"
 
 
 @router.post("/batch-index")
@@ -88,9 +88,9 @@ async def batch_index_books(body: dict):
             if not success or errors:
                 yield _sse_event({"id": cid, "title": rec.title, "status": "error", "errors": errors})
             else:
+                deps.mark_indexed({cid})
                 yield _sse_event({"id": cid, "title": rec.title, "status": "ok", "chunks": len(steps)})
 
-        deps.refresh_indexed_cache()
         yield _sse_event({"done": True, "total": len(calibre_ids)})
 
     return StreamingResponse(_stream(), media_type="text/event-stream")

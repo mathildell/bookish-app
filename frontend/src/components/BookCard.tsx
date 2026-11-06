@@ -2,9 +2,9 @@
 
 import type { BookCard as BookCardType } from "@/types/book";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { indexBook, unindexBook } from "@/lib/api";
-import { useRouter } from "next/navigation";
 
 function renderMoons(rating: number | null | undefined) {
   if (rating == null) return "";
@@ -15,27 +15,46 @@ function renderMoons(rating: number | null | undefined) {
   return "🌕".repeat(full) + "🌗".repeat(half) + "🌑".repeat(empty);
 }
 
-export default function BookCard({ book, selectedId, onToggleSelect }: { book: BookCardType; selectedId?: number | null; onToggleSelect?: (id: number) => void }) {
+export default function BookCard({ book, selectedId, onToggleSelect, indexing }: { book: BookCardType; selectedId?: number | null; onToggleSelect?: (id: number) => void; indexing?: boolean }) {
   const [hovered, setHovered] = useState(false);
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isSelected = selectedId === book.id && !!onToggleSelect;
+  // `indexing` comes from the batch flow, `loading` from this card's own button.
+  const busy = loading || !!indexing;
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  const showNotice = (ok: boolean, text: string) => {
+    setNotice({ ok, text });
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
+  };
 
   const handleToggleIndex = async (e: React.MouseEvent) => {
+    // The whole card is a link — without preventDefault the click follows it to /book/{id}.
+    e.preventDefault();
     e.stopPropagation();
     if (loading) return;
     setLoading(true);
     try {
       if (book.indexed) {
         await unindexBook(book.id);
+        showNotice(true, "Removed from index");
       } else {
-        // Indexing can take a while — optimistic update + reload
+        // Indexing can take a while
         await indexBook(book.id);
+        showNotice(true, "Indexed");
       }
-      router.refresh();
+      // Refresh the grid so the card's state and the "N indexed" counter stay truthful.
+      queryClient.invalidateQueries({ queryKey: ["books"] });
     } catch {
-      /* noop */ 
+      showNotice(false, "Couldn't update index");
     } finally {
       setLoading(false);
     }
@@ -102,15 +121,37 @@ export default function BookCard({ book, selectedId, onToggleSelect }: { book: B
         )}
         <button
           onClick={handleToggleIndex}
-          disabled={loading}
+          disabled={busy}
           className={
             "mt-3 w-full text-xs font-semibold py-2 rounded-md border-none cursor-pointer transition-opacity hover:brightness-110 disabled:opacity-50" +
             (book.indexed ? " bg-green-600 text-white" : " bg-orange-500 text-white")
           }
         >
-          {loading ? "…" : book.indexed ? "Remove from index" : "Index"}
+          {busy ? "…" : book.indexed ? "Remove from index" : "Index"}
         </button>
       </div>
+
+      {/* Discreet in-card loading overlay */}
+      {busy && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70">
+          <span className="flex items-center gap-2 text-[11px] font-semibold text-zinc-100">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-yellow-400" />
+            {book.indexed ? "Removing…" : "Indexing…"}
+          </span>
+        </div>
+      )}
+
+      {/* Transient result of the last index action */}
+      {notice && (
+        <div
+          className={`pointer-events-none absolute right-2 top-2 z-40 rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-md ${
+            notice.ok ? "bg-green-600" : "bg-red-600"
+          }`}
+        >
+          {notice.ok ? "✓ " : "! "}
+          {notice.text}
+        </div>
+      )}
     </Link>
   );
 }

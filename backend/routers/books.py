@@ -4,13 +4,12 @@ import base64
 import io
 from pathlib import Path
 from datetime import datetime
+
 from PIL import Image
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel
-
+from fastapi import APIRouter, HTTPException, Query
 from backend import dependencies as deps
-from backend.schemas import BookCard, BooksListResponse, BookDetail, BookFilterParams
+from backend.schemas import BookCard, BooksListResponse, BookDetail
 
 
 router = APIRouter()
@@ -84,6 +83,16 @@ def _book_to_detail(rec, indexed_ids: set[int]) -> BookDetail:
     )
 
 
+def _sort_safe(dt):
+    """Normalize a datetime for sorting; fallback to 0."""
+    if dt is None:
+        return datetime.min
+    try:
+        return dt.replace(tzinfo=None)
+    except Exception:
+        return datetime.min
+
+
 # --------------------------------------------------------------------------- #
 # Endpoints                                                                   #
 # --------------------------------------------------------------------------- #
@@ -95,81 +104,187 @@ async def list_books(
     indexed: bool | None = Query(None, description="filter by index status"),
     sort: str = Query("date_added_desc", description="sort field and direction"),
     selected_tags: str | None = Query(None, description="comma-separated tag list"),
+    list_id: int | None = Query(None, description="filter to books in a saved list"),
     offset: int = Query(0),
     limit: int = Query(30),
 ):
+    """Return book cards using a lightweight query that skips cover/EPUB loading.
+
+    Cover images are loaded on-demand for the visible page only.
+    Index status is checked lazily — failures in ChromaDB/Ollama just result
+    in empty indexed set rather than blocking the response.
+    
+    Returns an extra `indexed_unknown` flag when ChromaDB is down so the UI
+    can show "(?)" instead of "not indexed".
+    """
     reader = deps.get_reader()
     if reader is None:
         return BooksListResponse(cards=[], total=0, offset=offset)
 
-    indexed_ids = deps.get_indexed_ids()
-    all_books = list(reader.get_all_books())
+    # Lightweight card data: (calibre_id, title, authors, status, series_index, series_name, goodreads_rating)
+    # ~7 SQL queries total regardless of library size — no covers, no EPUB paths.
+    try:
+        all_cards = reader.get_books_card_data()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Failed to load book card data", exc_info=True)
+        return BooksListResponse(cards=[], total=0, offset=offset)
 
-    # Filter out ignored titles (case-insensitive partial match)
+    # Apply ignored filter
     ign = {t.lower().strip() for t in (deps.get_settings().ignored_books or []) if t.strip()}
     if ign:
-        all_books = [b for b in all_books if not any(pat in b.title.lower() for pat in ign)]
+        all_cards = [c for c in all_cards if not any(pat in c[1].lower() for pat in ign)]
+
+    # Lazy index lookup — never blocks on ChromaDB/Ollama being down
+    try:
+        indexed_ids = deps.get_indexed_ids() or set()
+    except Exception:
+        indexed_ids = set()
+
+    chroma_ok = deps.check_chroma_health()
 
     # Build filter set
     tag_set = set(t.strip() for t in (selected_tags or "").split(",") if t.strip()) if selected_tags else set()
-    filtered = list(all_books)
 
-    # Status filter
+    filtered = list(all_cards)
+
+    # Status filter — already present in lightweight card data at index 3
     if status:
-        sid_list = reader.filter_by_status(status)
-        if sid_list:
-            sid_set = set(sid_list)
-            filtered = [b for b in filtered if b.calibre_id in sid_set]
+        filtered = [c for c in filtered if c[3] == status]
 
     # Index filter
     if indexed is not None:
         if indexed:
-            filtered = [b for b in filtered if b.calibre_id in indexed_ids]
+            filtered = [c for c in filtered if c[0] in indexed_ids]
         else:
-            filtered = [b for b in filtered if b.calibre_id not in indexed_ids]
+            filtered = [c for c in filtered if c[0] not in indexed_ids]
 
-    # Tag filter (checks both tags and genres fields, case-insensitively —
-    # Calibre tags are often lowercase, e.g. "arc" for the sidebar's "ARC")
+    # Saved-list filter — restrict to books in the list
+    if list_id is not None:
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+            _lists_file = _Path(__file__).resolve().parent.parent.parent / "data" / "lists.json"
+            if _lists_file.exists():
+                _all_lists = _json.loads(_lists_file.read_text())
+                _target = next((l for l in _all_lists if l["id"] == list_id), None)
+                if _target:
+                    filtered = [c for c in filtered if c[0] in set(_target["book_ids"])]
+                else:
+                    filtered = []
+        except Exception:
+            filtered = []
+
+    # Tag filter — for tag/genre filtering we need full data, so do selective assembly
     if tag_set:
         wanted = {t.lower() for t in tag_set}
-        tagged_ids = set()
-        for b in filtered:
-            book_values = {t.lower() for t in (b.tags or [])} | {g.lower() for g in (b.genres or [])}
-            if wanted & book_values:
-                tagged_ids.add(b.calibre_id)
-        filtered = [b for b in filtered if b.calibre_id in tagged_ids]
+        matched_ids = set()
+        candidate_ids = [c[0] for c in filtered]
 
-    # Text search
+        if candidate_ids:
+            ph = ",".join("?" * len(candidate_ids))
+
+            # Tags
+            for r in reader._exec(
+                f"SELECT btl.book, t.name FROM books_tags_link btl "
+                f"JOIN tags t ON btl.tag=t.id WHERE btl.book IN ({ph})",
+                candidate_ids,
+            ).fetchall():
+                if r["name"].lower() in wanted:
+                    matched_ids.add(r["book"])
+
+            # Genres (cc12)
+            for r in reader._exec(
+                f"SELECT bcl.book, cv.value FROM books_custom_column_12_link bcl "
+                f"JOIN custom_column_12 cv ON bcl.value=cv.id WHERE bcl.book IN ({ph})",
+                candidate_ids,
+            ).fetchall():
+                if r["value"].lower() in wanted:
+                    matched_ids.add(r["book"])
+
+        filtered = [c for c in filtered if c[0] in matched_ids]
+
+    # Text search — title, authors and series come from the lightweight data;
+    # Calibre tags live in another table, so match them separately.
     if query:
         q_lower = query.lower()
+
+        tag_matched: set[int] = set()
+        candidate_ids = [c[0] for c in filtered]
+        if candidate_ids:
+            ph = ",".join("?" * len(candidate_ids))
+            try:
+                for r in reader._exec(
+                    f"SELECT btl.book, t.name FROM books_tags_link btl "
+                    f"JOIN tags t ON btl.tag=t.id WHERE btl.book IN ({ph})",
+                    candidate_ids,
+                ).fetchall():
+                    if q_lower in (r["name"] or "").lower():
+                        tag_matched.add(r["book"])
+            except Exception:
+                tag_matched = set()
+
         filtered = [
-            b for b in filtered
-            if q_lower in b.title.lower()
-            or any(q_lower in a.lower() for a in (b.authors or []))
-            or (b.series_name and q_lower in b.series_name.lower())
+            c for c in filtered
+            if q_lower in c[1].lower()
+            or any(q_lower in a.lower() for a in (c[2] or []))
+            or (c[5] and q_lower in c[5].lower())
+            or c[0] in tag_matched
         ]
 
-    # Sorting
-    def _sort_key(b):
-        dt = None
-        if sort.startswith("date_added"):
-            dt = getattr(b, "date_added", None)
-        elif sort.startswith("date_read"):
-            dt = getattr(b, "date_read", None)
-        if dt is None:
-            return datetime.min
-        # Strip tz for comparison
-        try:
-            return dt.replace(tzinfo=None)
-        except Exception:
-            return datetime.min
-
+    # Sorting — date_added via timestamp column at index 7, fallback to ID
     reverse = sort.endswith("_desc")
+    def _sort_key(c):
+        if sort.startswith("date_added"):
+            try:
+                dt = c[7] if len(c) > 7 else None
+            except (IndexError, TypeError):
+                dt = None
+            return (_sort_safe(dt), c[0])
+        elif sort.startswith("date_read"):
+            # date_read not in lightweight data — fallback to ID order
+            return (c[0], c[1].casefold())
+        return (c[0], c[1].casefold())
+
     filtered.sort(key=_sort_key, reverse=reverse)
 
-    cards = [_book_to_card(b, indexed_ids) for b in filtered[offset : offset + limit]]
-    indexed_total = sum(1 for b in filtered if b.calibre_id in indexed_ids)
-    return BooksListResponse(cards=cards, total=len(filtered), offset=offset, indexed_total=indexed_total)
+    # Pagination
+    page_cards = filtered[offset : offset + limit]
+
+    # Batch-load covers only for IDs being displayed
+    if page_cards:
+        cover_ids = [c[0] for c in page_cards]
+        try:
+            cover_paths = reader.get_covers_batch(cover_ids)
+        except Exception:
+            cover_paths = {}
+
+        cards_out = []
+        for c in page_cards:
+            bid, title, authors, st_status, s_index, s_name, gr_rating = (
+                c[0], c[1], c[2] or [], c[3], c[4], c[5], c[6]
+            )
+            uri = _cover_to_uri(cover_paths.get(bid)) if cover_paths is not None else None
+            cards_out.append(BookCard(
+                id=bid,
+                title=title,
+                authors=authors,
+                series_name=s_name,
+                series_index=s_index,
+                cover_uri=uri,
+                status=st_status,
+                goodreads_rating=gr_rating,
+                indexed=bid in indexed_ids,
+            ))
+    else:
+        cards_out = []
+
+    indexed_total = sum(1 for c in filtered if c[0] in indexed_ids)
+    return BooksListResponse(
+        cards=cards_out, total=len(filtered), offset=offset,
+        indexed_total=indexed_total,
+        indexed_unknown=not chroma_ok,
+    )
 
 
 @router.get("/books/{calibre_id}")
@@ -177,7 +292,6 @@ async def get_book(calibre_id: int):
     reader = deps.get_reader()
     rec = reader.get_book_by_id(calibre_id)
     if not rec:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Book not found")
 
     indexed_ids = deps.get_indexed_ids()
@@ -191,13 +305,13 @@ async def get_book(calibre_id: int):
 async def get_filter_metadata():
     """Return all unique statuses for dropdown filters."""
     reader = deps.get_reader()
-    all_books = list(reader.get_all_books())
-
-    ign = {t.lower().strip() for t in (deps.get_settings().ignored_books or []) if t.strip()}
-    if ign:
-        all_books = [b for b in all_books if not any(pat in b.title.lower() for pat in ign)]
-
-    statuses = sorted({b.status for b in all_books if b.status})
+    if reader is None:
+        return {"statuses": []}
+    try:
+        rows = reader._exec("SELECT DISTINCT value FROM custom_column_13 WHERE value LIKE '%_%' OR value NOT LIKE 'wont-read%'").fetchall()
+    except Exception:
+        rows = []
+    statuses = sorted(r["value"] for r in rows)
     return {"statuses": statuses}
 
 
@@ -206,42 +320,39 @@ async def list_arcs():
     """Return ARC books for the tracker page."""
     reader = deps.get_reader()
     writer = deps.get_writer()
-    indexed_ids = deps.get_indexed_ids()
 
-    all_books = list(reader.get_all_books())
+    try:
+        all_books = reader.get_all_books()
+    except Exception:
+        return []
 
-    ign = {t.lower().strip() for t in (deps.get_settings().ignored_books or []) if t.strip()}
-    if ign:
-        all_books = [b for b in all_books if not any(pat in b.title.lower() for pat in ign)]
-
-    arcs = [b for b in all_books if b.netgalley_deadline or any("arc" == t.lower() for t in (getattr(b, "tags", []) or []))]
+    arcs = [
+        b for b in all_books
+        if b.netgalley_deadline or any(t.lower() == "arc" for t in (b.tags or []))
+    ]
 
     now_dt = datetime.now()
     results = []
     for bk in arcs:
-        rec = reader.get_book_by_id(bk.calibre_id)
-        if not rec:
-            continue
-        _dt = rec.netgalley_deadline
+        _dt = bk.netgalley_deadline
         try:
             dl = _dt.replace(tzinfo=None) if _dt and _dt.tzinfo else _dt
         except Exception:
             dl = None
 
         delta = (now_dt - dl).days if dl else None
-        has_review = writer.has_review(rec)
-        # A saved review means the ARC is done, so it is no longer overdue
+        has_review = writer.has_review(bk)
         overdue = bool(delta and delta > 0) and not has_review
 
         results.append({
-            "calibre_id": rec.calibre_id,
-            "title": rec.title,
-            "authors": rec.authors or [],
-            "cover_uri": _cover_to_uri(rec.cover_path, max_size=120),
-            "netgalley_deadline": _fmt_date(rec.netgalley_deadline),
+            "calibre_id": bk.calibre_id,
+            "title": bk.title,
+            "authors": bk.authors or [],
+            "cover_uri": _cover_to_uri(bk.cover_path, max_size=120),
+            "netgalley_deadline": _fmt_date(bk.netgalley_deadline),
             "days_past_due": delta if overdue else 0,
             "overdue": overdue,
-            "has_notes": bool(rec.personal_notes),
+            "has_notes": bool(bk.personal_notes),
             "has_review": has_review,
         })
 
@@ -259,7 +370,6 @@ async def write_obsidian(calibre_id: int, content: dict):
     writer = deps.get_writer()
     rec = reader.get_book_by_id(calibre_id)
     if not rec:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Book not found")
 
     success = writer.write_review(rec, content.get("review", ""))
@@ -272,7 +382,6 @@ async def delete_obsidian(calibre_id: int):
     writer = deps.get_writer()
     rec = reader.get_book_by_id(calibre_id)
     if not rec:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Book not found")
 
     success = writer.delete_review(rec)

@@ -102,18 +102,32 @@ def main() -> None:
     candidate_ids = sorted(r["id"] for r in rows)
     log.info("Candidate books (added before %s): %d", cutoff_iso, len(candidate_ids))
 
-    # ── 2. drop "Metadata helper" ────────────────────────────────────────
+    # ── 2. drop "Metadata helper" and books tagged "graphic-novel" ────────
     def _title(bid: int) -> str:
         r = reader._exec("SELECT title FROM books WHERE id=?", (bid,)).fetchone()
         return r["title"] if r else ""
 
-    filtered_ids = [
+    no_helper = {
         bid for bid in candidate_ids
         if "metadata helper" not in _title(bid).lower().replace("-", " ")
-    ]
-    skipped = len(candidate_ids) - len(filtered_ids)
-    if skipped:
-        log.info("Excluded 'Metadata helper' variants: %d", skipped)
+    }
+    skipped_helper = len(candidate_ids) - len(no_helper)
+
+    # Exclude books with the "graphic-novel" Calibre tag (case-insensitive)
+    gn_rows = reader._exec(
+        """SELECT DISTINCT btl.book FROM books_tags_link btl
+           JOIN tags t ON btl.tag = t.id
+           WHERE LOWER(t.name) = 'graphic-novel'""",
+    ).fetchall()
+    graphic_ids = {r["book"] for r in gn_rows}
+
+    filtered_ids = sorted(no_helper - graphic_ids)
+    skipped_gn = len(no_helper) - len(filtered_ids)
+
+    if skipped_helper:
+        log.info("Excluded 'Metadata helper' variants: %d", skipped_helper)
+    if skipped_gn:
+        log.info("Excluded books tagged 'graphic-novel': %d", skipped_gn)
 
     # ── 3. resume check ─────────────────────────────────────────────────
     already_indexed = ingestor.get_all_indexed_ids() & set(filtered_ids)

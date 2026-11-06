@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface SettingsData {
   calibre_db_path: string;
@@ -107,8 +107,15 @@ export default function SettingsPage() {
   });
 
   const [form, setForm] = useState<SettingsData | null>(null);
-  
-  if (data && !form) setForm(data);
+  const initialSync = useRef(false);
+
+  // Populate form on first successful fetch — preserves local edits across refetches
+  useEffect(() => {
+    if (data && !initialSync.current) {
+      initialSync.current = true;
+      setForm(data);
+    }
+  }, [data]);
 
   const updateMut = useMutation({
     mutationFn: updateSettings,
