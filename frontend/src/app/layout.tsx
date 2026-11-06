@@ -46,7 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Nav />
           <div className="bg-[#0a0a0f]" style={{ height: "calc(100vh_-_3.5rem)" }}>
-            <main className="max-w-7xl mx-auto h-full px-4 py-6">{children}</main>
+            <main className="max-w-7xl mx-auto h-full px-4 pb-6">{children}</main>
           </div>
         </Providers>
       </body>

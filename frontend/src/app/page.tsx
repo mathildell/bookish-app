@@ -415,7 +415,7 @@ export default function LibraryPage() {
         </aside>
 
         {/* Books — scroll with the page, like normal document flow */}
-        <div className="min-w-0 pb-16 pl-1">
+        <div className="min-w-0 pb-16 pt-8 pl-1">
           <BookGrid
             query={filters.query}
             status={filters.status}

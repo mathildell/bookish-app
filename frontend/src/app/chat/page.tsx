@@ -118,12 +118,11 @@ function ChatPageContent() {
       </>
     );
 
-  const libraryHref = "/";
   // Remount the chat when the selection changes so history can't leak across contexts
   const chatKey = selectedIds.length ? selectedIds.slice().sort((a, b) => a - b).join("-") : "library";
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-7.5rem)]">
+    <div className="flex flex-col min-h-[calc(100vh-7.5rem)] pt-6">
       <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
       <p className="text-sm text-zinc-500 mt-1 mb-4">{description}</p>
 
@@ -269,13 +268,6 @@ function ChatPageContent() {
           />
         </div>
       </div>
-
-      <p className="text-xs text-zinc-600 mt-4">
-        Looking for more books?{" "}
-        <Link href={libraryHref} className="text-yellow-500 hover:underline">
-          Back to Library
-        </Link>
-      </p>
     </div>
   );
 }
