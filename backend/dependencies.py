@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import threading
 import yaml
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def _resolve_path(raw: str, root: Path) -> Path:
 
 
 def _indexed_cache_path() -> Path:
-    return Path("/Users/neo/Development/perso/BookishApp/data/indexed_ids.cache")
+    return Path(__file__).resolve().parent.parent / "data" / "indexed_ids.cache"
 
 
 # --------------------------------------------------------------------------- #
@@ -108,6 +109,7 @@ def _load_settings_from_yaml() -> AppSettings:
 
     return AppSettings(
         calibre_db_path=str(db_path),
+        calibre_url=str(a2.get("calibre_url", "") or ""),
         obsidian_vault_path=str(vault_path),
         chroma_db_path=str(chroma_path),
         ollama_host=o2.get("host", "192.168.2.10"),
@@ -127,29 +129,38 @@ def _load_settings_from_yaml() -> AppSettings:
 # --------------------------------------------------------------------------- #
 
 _chroma_initialized: bool = False
+_chroma_lock = threading.Lock()
 
 
 def _ensure_chroma():
-    """Load Ingestor + ChatEngine on first chat/index access, not at server start."""
+    """Load Ingestor + ChatEngine on first chat/index access, not at server start.
+
+    Routes run in FastAPI's threadpool, so two requests can land here at once;
+    the lock keeps the one-time ChromaDB setup single-threaded.
+    """
     global _ingestor, _chat_engine, _chroma_ok, _indexed_ids, _chroma_initialized
     if _chroma_initialized:
         return
 
-    from lib.ingestor import Ingestor as LazyIngestor
-    from lib.chat import ChatEngine as LazyChatEngine
+    with _chroma_lock:
+        if _chroma_initialized:
+            return
 
-    try:
-        _ingestor = LazyIngestor(_settings)  # type: ignore[arg-type]
-        _chat_engine = LazyChatEngine(_settings)
-        # Quick health probe via count — this forces Chromium to be loaded once
-        _ingestor._collection.count()
-        # Skip live indexed-ID refresh; cache is accurate enough and fast.
-        _chroma_ok = True
-        print(f"[INFO] ChromaDB ready for chat ({len(_indexed_ids)} cached indexed IDs)")
-    except Exception as exc:
-        print(f"[WARNING] ChromaDB unavailable on demand: {exc}")
+        from lib.ingestor import Ingestor as LazyIngestor
+        from lib.chat import ChatEngine as LazyChatEngine
 
-    _chroma_initialized = True
+        try:
+            _ingestor = LazyIngestor(_settings)  # type: ignore[arg-type]
+            _chat_engine = LazyChatEngine(_settings)
+            # Quick health probe via count — this forces Chromium to be loaded once
+            _ingestor._collection.count()
+            # Skip live indexed-ID refresh; cache is accurate enough and fast.
+            _chroma_ok = True
+            print(f"[INFO] ChromaDB ready for chat ({len(_indexed_ids)} cached indexed IDs)")
+        except Exception as exc:
+            print(f"[WARNING] ChromaDB unavailable on demand: {exc}")
+
+        _chroma_initialized = True
 
 
 # --------------------------------------------------------------------------- #
@@ -225,8 +236,16 @@ def refresh_indexed_cache():
 
 def init_services():
     global _settings, _reader, _writer, _indexed_ids, _chroma_ok
+    global _ingestor, _chat_engine, _chroma_initialized
     _settings = _load_settings_from_yaml()
     _chroma_ok = False
+
+    # The ingestor and chat engine capture the AppSettings object they were built
+    # with, so drop them on (re)init. Otherwise a settings change — above all the
+    # "Chat Model" — would never reach the model the next chat asks Ollama for.
+    _ingestor = None
+    _chat_engine = None
+    _chroma_initialized = False
 
     # Calibre DB — critical, fail fast if missing
     try:

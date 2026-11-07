@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import re
+import time
 from typing import Optional, Callable
 
 from ollama import Client
@@ -18,6 +20,41 @@ logger = logging.getLogger(__name__)
 _CONTEXT_SNIPPET_MAX = 600       # max chars per retrieved chunk
 _HISTORY_TURNS = 6              # last N message pairs to send the model
 _SYSTEM_TEMPERATURE = 0.4       # kept low for factual answers
+
+# Ollama allows an unlimited token budget by default, so a model that falls into a
+# reasoning loop (repeating a numbered list forever) never stops on its own.
+_MAX_PREDICT = 4096             # hard cap on thinking + answer tokens
+_THINKING_TIMEOUT_S = 120       # give up if no answer text has arrived by then
+_LOOP_CHECK_CHARS = 6000        # start loop detection once reasoning is this long
+_LOOP_TAIL_CHARS = 4000
+_LOOP_SEGMENT_CHARS = 500
+
+_LOOP_MESSAGE = (
+    "The model got stuck repeating itself while reasoning, so the answer was "
+    "stopped. Try rephrasing the question."
+)
+_TIMEOUT_MESSAGE = (
+    "The model reasoned for over two minutes without answering, so the answer "
+    "was stopped. Try rephrasing the question."
+)
+
+
+def _chat_options() -> dict:
+    return {"temperature": _SYSTEM_TEMPERATURE, "num_predict": _MAX_PREDICT}
+
+
+def _reasoning_is_looping(reasoning: str) -> bool:
+    """Detect a reasoning loop, e.g. a numbered list whose numbers just increment.
+
+    Digits are masked so "1. the same text" and "2. the same text" both match.
+    """
+    if len(reasoning) < _LOOP_CHECK_CHARS:
+        return False
+    tail = re.sub(r"\d+", "#", reasoning[-_LOOP_TAIL_CHARS:])
+    if len(tail) < _LOOP_SEGMENT_CHARS * 2:
+        return False
+    segment = tail[-_LOOP_SEGMENT_CHARS:]
+    return segment in tail[:-_LOOP_SEGMENT_CHARS]
 
 SYSTEM_TEMPLATES = {
     "book": (
@@ -115,13 +152,16 @@ class ChatEngine:
             logger.warning("Query embedding failed for retrieval", exc_info=exc)
             return []
 
-        where_filter: dict[str, object] = {}
+        # Restrict retrieval to the selected books. `_cid` is stored as an int by
+        # the ingestor, so the filter must use ints and Chroma's $in operator.
+        where_filter: Optional[dict[str, object]] = None
         if calibre_ids:
-            where_filter["_cid"] = [str(i) for i in calibre_ids]
+            where_filter = {"_cid": {"$in": [int(i) for i in calibre_ids]}}
 
         results = self.collection.query(
             query_embeddings=[q_emb],
             n_results=k,
+            where=where_filter,
             include=["distances", "documents", "metadatas"],
         )
 
@@ -161,7 +201,7 @@ class ChatEngine:
             stream_resp = self._ollama.chat(
                 model=self.s.chat_model,
                 messages=messages,
-                options={"temperature": _SYSTEM_TEMPERATURE},
+                options=_chat_options(),
                 stream=True,
             )
             tokens: list[str] = []
@@ -193,10 +233,13 @@ class ChatEngine:
         scope: str = "book",
         on_token: Optional[Callable[[str], None]] = None,
     ):
-        """Yield ("token", text) or ("error", message) without final aggregation.
+        """Yield ("thinking"|"token"|"error"|"chunks", payload).
 
-        The caller owns collecting the tokens and deciding what to do with them.
-        Returns (yielded tokens list, chunks list) via a small helper dict at end.
+        Reasoning models stream their reasoning in `message.thinking` and leave
+        `message.content` empty until they start answering. Forwarding only
+        content leaves the caller silent for the whole think phase, so thinking
+        is streamed too. Empty content deltas are skipped rather than emitted as
+        blank tokens.
         """
         chunks = self.retrieve_chunks(query=user_message, calibre_ids=calibre_ids)
         system_content = self._make_system(scope, chunks)
@@ -206,12 +249,35 @@ class ChatEngine:
             stream_resp = self._ollama.chat(
                 model=self.s.chat_model,
                 messages=messages,
-                options={"temperature": _SYSTEM_TEMPERATURE},
+                options=_chat_options(),
                 stream=True,
             )
+            started = time.monotonic()
+            reasoning: list[str] = []
+            reasoning_frames = 0
+            saw_content = False
             for frame in stream_resp:
-                delta = frame.get("message", {}).get("content") or ""
-                if delta and on_token:
+                message = frame.get("message", {}) or {}
+                thought = message.get("thinking") or ""
+                if thought:
+                    reasoning.append(thought)
+                    yield ("thinking", thought)
+                    reasoning_frames += 1
+                    if reasoning_frames % 20 == 0 and _reasoning_is_looping(
+                        "".join(reasoning)
+                    ):
+                        logger.warning("Reasoning loop detected; stopping generation")
+                        yield ("error", _LOOP_MESSAGE)
+                        return
+                delta = message.get("content") or ""
+                if not delta:
+                    if not saw_content and time.monotonic() - started > _THINKING_TIMEOUT_S:
+                        logger.warning("Reasoning timed out before any answer text")
+                        yield ("error", _TIMEOUT_MESSAGE)
+                        return
+                    continue
+                saw_content = True
+                if on_token:
                     on_token(delta)
                 yield ("token", delta)
         except Exception as exc:

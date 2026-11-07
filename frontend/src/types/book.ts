@@ -46,6 +46,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  /** Reasoning-model output, streamed while the answer is still empty. */
+  thinking?: string;
 }
 
 export interface Citation {
