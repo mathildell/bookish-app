@@ -22,8 +22,8 @@ from datetime import datetime
 # ── paths ───────────────────────────────────────────────────────────────
 HERE       = Path(__file__).resolve().parent
 CHROMA_DIR = HERE / "data" / "chroma_db"
-VAULT_DIR  = str(Path("~/BookReviews/").expanduser())
-DB_PATH    = str(Path("~/Documents/Books/metadata.db").expanduser())
+VAULT_DIR  = str(HERE / "data" / "reviews")
+DB_PATH    = str(HERE / "data" / "calibre.db")
 
 # ── logging (suppress noisy httpx / urllib3 lines) ──────────────────────
 os.makedirs(HERE / "data", exist_ok=True)
