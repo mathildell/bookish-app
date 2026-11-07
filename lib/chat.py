@@ -29,7 +29,7 @@ _DEFAULT_NUM_CTX = 98304        # context window offered to the model
 # reasoning loop (repeating a numbered list forever) never stops on its own; the
 # cap plus the loop detector below are what stop it.
 _DEFAULT_NUM_PREDICT = 16384    # hard cap on thinking + answer tokens
-_THINKING_TIMEOUT_S = 120       # give up if no answer text has arrived by then
+_THINKING_TIMEOUT_S = 120       # give up this long after the first frame, not after the request
 _LOOP_CHECK_CHARS = 6000        # start loop detection once reasoning is this long
 _LOOP_TAIL_CHARS = 4000
 _LOOP_SEGMENT_CHARS = 500
@@ -281,11 +281,19 @@ class ChatEngine:
                 options=_chat_options(self.s),
                 stream=True,
             )
-            started = time.monotonic()
+            # Timed from the first frame, not from the request: Ollama loads the
+            # model inside this call, and at a 98k context window that load alone
+            # has been measured at 186 s. Counting it against the answer deadline
+            # spent the whole budget before the model had reasoned at all, so a
+            # cold start always ended in "the model reasoned for over two minutes"
+            # the moment the first reasoning frame arrived.
+            first_frame_at: Optional[float] = None
             reasoning: list[str] = []
             reasoning_frames = 0
             saw_content = False
             for frame in stream_resp:
+                if first_frame_at is None:
+                    first_frame_at = time.monotonic()
                 message = frame.get("message", {}) or {}
                 thought = message.get("thinking") or ""
                 if thought:
@@ -300,7 +308,7 @@ class ChatEngine:
                         return
                 delta = message.get("content") or ""
                 if not delta:
-                    if not saw_content and time.monotonic() - started > _THINKING_TIMEOUT_S:
+                    if not saw_content and time.monotonic() - first_frame_at > _THINKING_TIMEOUT_S:
                         logger.warning("Reasoning timed out before any answer text")
                         yield ("error", _TIMEOUT_MESSAGE)
                         return
