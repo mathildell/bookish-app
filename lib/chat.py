@@ -21,9 +21,14 @@ _CONTEXT_SNIPPET_MAX = 600       # max chars per retrieved chunk
 _HISTORY_TURNS = 6              # last N message pairs to send the model
 _SYSTEM_TEMPERATURE = 0.4       # kept low for factual answers
 
+# Both limits are per model — a 27B's real window and output ceiling differ from
+# an 8B's — so they come from config.yaml (the `chat:` block) instead of living
+# here as constants.
+_DEFAULT_NUM_CTX = 98304        # context window offered to the model
 # Ollama allows an unlimited token budget by default, so a model that falls into a
-# reasoning loop (repeating a numbered list forever) never stops on its own.
-_MAX_PREDICT = 4096             # hard cap on thinking + answer tokens
+# reasoning loop (repeating a numbered list forever) never stops on its own; the
+# cap plus the loop detector below are what stop it.
+_DEFAULT_NUM_PREDICT = 16384    # hard cap on thinking + answer tokens
 _THINKING_TIMEOUT_S = 120       # give up if no answer text has arrived by then
 _LOOP_CHECK_CHARS = 6000        # start loop detection once reasoning is this long
 _LOOP_TAIL_CHARS = 4000
@@ -39,8 +44,18 @@ _TIMEOUT_MESSAGE = (
 )
 
 
-def _chat_options() -> dict:
-    return {"temperature": _SYSTEM_TEMPERATURE, "num_predict": _MAX_PREDICT}
+def _chat_options(settings: AppSettings) -> dict:
+    """Request options for a chat call.
+
+    num_ctx is sent explicitly because Ollama defaults to 4096 whatever the model
+    supports: that is smaller than the retrieved passages plus a few turns of
+    history, and the truncation looks like the model ignoring the books.
+    """
+    return {
+        "temperature": _SYSTEM_TEMPERATURE,
+        "num_ctx": settings.chat_num_ctx or _DEFAULT_NUM_CTX,
+        "num_predict": settings.chat_num_predict or _DEFAULT_NUM_PREDICT,
+    }
 
 
 def _reasoning_is_looping(reasoning: str) -> bool:
@@ -158,12 +173,26 @@ class ChatEngine:
         if calibre_ids:
             where_filter = {"_cid": {"$in": [int(i) for i in calibre_ids]}}
 
-        results = self.collection.query(
-            query_embeddings=[q_emb],
-            n_results=k,
-            where=where_filter,
-            include=["distances", "documents", "metadatas"],
-        )
+        try:
+            results = self.collection.query(
+                query_embeddings=[q_emb],
+                n_results=k,
+                where=where_filter,
+                include=["distances", "documents", "metadatas"],
+            )
+        except Exception as exc:
+            # ChromaDB fixes the vector size when a collection is first written,
+            # so a new embedding model pointed at an old index fails here with a
+            # bare "expecting embedding with dimension of 768, got 4096". Say what
+            # that means and how to get out of it.
+            if "dimension" not in str(exc).lower():
+                raise
+            raise RuntimeError(
+                "The vector index was built with a different embedding model than "
+                f"'{self.s.embedding_model}' ({exc}). Re-embed with "
+                "scripts/reembed_to_model.py, then point app.chroma_db_path at the "
+                "new index once it is complete."
+            ) from exc
 
         chunks: list[dict] = []
         ids = results["ids"][0]
@@ -201,7 +230,7 @@ class ChatEngine:
             stream_resp = self._ollama.chat(
                 model=self.s.chat_model,
                 messages=messages,
-                options=_chat_options(),
+                options=_chat_options(self.s),
                 stream=True,
             )
             tokens: list[str] = []
@@ -249,7 +278,7 @@ class ChatEngine:
             stream_resp = self._ollama.chat(
                 model=self.s.chat_model,
                 messages=messages,
-                options=_chat_options(),
+                options=_chat_options(self.s),
                 stream=True,
             )
             started = time.monotonic()

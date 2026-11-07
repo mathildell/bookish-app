@@ -11,6 +11,13 @@ interface SettingsData {
   ollama_host: string;
   ollama_port: number;
   chat_model: string;
+  extraction_model: string;
+  writing_model: string;
+  writing_temperature: number;
+  writing_top_p: number;
+  writing_num_predict: number;
+  chat_num_ctx: number;
+  chat_num_predict: number;
   embedding_model: string;
   chunk_size: number;
   chunk_overlap: number;
@@ -179,9 +186,34 @@ export default function SettingsPage() {
         <TextRow label="Chat Model" value={form.chat_model} 
           onChange={(v) => handleChange("chat_model", v)}
           help="Model used for conversation responses" />
+        <TextRow label="Context Window" value={form.chat_num_ctx}
+          onChange={(v) => handleChange("chat_num_ctx", v)}
+          help="num_ctx sent with every chat request. Ollama defaults to 4096 whatever the model supports, which truncates the retrieved passages and the history." />
+        <TextRow label="Max Output Tokens" value={form.chat_num_predict}
+          onChange={(v) => handleChange("chat_num_predict", v)}
+          help="num_predict per answer, reasoning included. Caps a model that would otherwise think until it starves the host." />
+        <TextRow label="Extraction Model" value={form.extraction_model ?? ""}
+          onChange={(v) => handleChange("extraction_model", v)}
+          help="Model used to discover and profile characters. Falls back to the Chat Model when empty." />
         <TextRow label="Embedding Model" value={form.embedding_model} 
           onChange={(v) => handleChange("embedding_model", v)}
           help="Model used for text vectorization during indexing" />
+      </Section>
+
+      {/* Creative writing tuning */}
+      <Section title="Creative Writing">
+        <TextRow label="Writing Model" value={form.writing_model ?? ""}
+          onChange={(v) => handleChange("writing_model", v)}
+          help="Model used for scenes on the Write page. Leave empty to reuse the Chat Model — a reasoning model will spend the whole budget thinking and return no prose." />
+        <TextRow label="Temperature" value={form.writing_temperature}
+          onChange={(v) => handleChange("writing_temperature", v)}
+          help="Higher is more surprising, lower more controlled (default: 0.95)" />
+        <TextRow label="Top-P" value={form.writing_top_p}
+          onChange={(v) => handleChange("writing_top_p", v)}
+          help="Nucleus sampling cut-off (default: 0.95)" />
+        <TextRow label="Max Tokens" value={form.writing_num_predict}
+          onChange={(v) => handleChange("writing_num_predict", v)}
+          help="Token budget per generation round (default: 1200). A scene that hits it is continued automatically." />
       </Section>
 
       {/* Ingestion tuning */}
