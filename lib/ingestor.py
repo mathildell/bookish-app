@@ -138,7 +138,16 @@ class Ingestor:
         if progress_callback:
             progress_callback(prog)
 
-        books_chunks = self._chunk_chapters(chapters, book.calibre_id)
+        # Chunk size and overlap come from settings. They used to be ignored here,
+        # so the Chunk Size setting looked live but every book was chunked at the
+        # 600-token default — which matters now that a re-ingest at a different
+        # size is a supported thing to do (scripts/reingest_to_model.py).
+        books_chunks = self._chunk_chapters(
+            chapters,
+            book.calibre_id,
+            chunk_size=self.s.chunk_size,
+            overlap_pct=self.s.chunk_overlap / 100,
+        )
         prog.chunks_created = len(books_chunks)
         if progress_callback:
             progress_callback(prog)
