@@ -283,6 +283,29 @@ export default function LibraryPage() {
                   </Link>
                 </Tooltip>
 
+                {/* Extract characters — only from books whose text is in the index */}
+                {selectedUnindexed.length === 0 ? (
+                  <Tooltip label={`Extract characters from ${selectionLabel}`} align="right">
+                    <Link
+                      href={{ pathname: "/characters/extract", query: { ids: selectedIds.join(",") } }}
+                      aria-label={`Extract characters from ${selectionLabel}`}
+                      className={`${ACTION_BTN} bg-purple-700 hover:bg-purple-600 text-white`}
+                    >
+                      👥
+                    </Link>
+                  </Tooltip>
+                ) : (
+                  <Tooltip label="Index these books first — characters are read from the search index" align="right">
+                    <button
+                      disabled
+                      aria-label="Extract characters (index the selected books first)"
+                      className={`${ACTION_BTN} bg-zinc-800/80 text-zinc-500`}
+                    >
+                      👥
+                    </button>
+                  </Tooltip>
+                )}
+
                 {/* Index only the selected books that are not indexed yet */}
                 {selectedUnindexed.length > 0 && (
                   <Tooltip label={`Add ${unindexedLabel} to the search index`} align="right">

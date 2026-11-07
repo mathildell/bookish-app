@@ -14,6 +14,8 @@ export const metadata: Metadata = {
 function Nav() {
   const items = [
     { label: "Chat", href: "/chat" },
+    { label: "Write", href: "/write" },
+    { label: "Characters", href: "/characters" },
     { label: "ARC Tracker", href: "/arcs" },
     { label: "Bookmarks", href: "/bookmarks" },
     { label: "Settings", href: "/settings" },

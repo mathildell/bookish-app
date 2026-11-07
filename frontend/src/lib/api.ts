@@ -1,4 +1,5 @@
 import type { BookCard, BooksListResponse } from "@/types/book";
+import type { Character, CharacterInput } from "@/types/character";
 import { useQuery } from "@tanstack/react-query";
 
 const BASE = "/api";
@@ -339,11 +340,295 @@ export async function deleteBookmark(id: number): Promise<void> {
   return res.json();
 }
 
+// ----- Creative writing -----
+
+export type SceneTurn = { role: "user" | "assistant"; content: string };
+
+export type SceneEvent =
+  | { kind: "token"; text: string }
+  | { kind: "thinking"; text: string }
+  | { kind: "done"; answer: string; suggestions: string[] }
+  | { kind: "error"; error: string };
+
+export async function* streamScene(payload: {
+  message: string;
+  history: SceneTurn[];
+  character_ids: number[];
+  genre: string;
+}): AsyncGenerator<SceneEvent> {
+  const res = await fetch(`${BASE}/write/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail || `Writing failed: ${res.statusText}`);
+  }
+
+  for await (const data of readSse(res.body)) {
+    if (typeof data.token === "string") yield { kind: "token", text: data.token };
+    else if (typeof data.thinking === "string") yield { kind: "thinking", text: data.thinking };
+    else if (data.done)
+      yield {
+        kind: "done",
+        answer: String(data.answer ?? ""),
+        suggestions: (data.suggestions ?? []) as string[],
+      };
+    else if (typeof data.error === "string") yield { kind: "error", error: data.error };
+  }
+}
+
+export async function regenerateSceneSuggestions(payload: {
+  character_ids: number[];
+  history: SceneTurn[];
+}): Promise<string[]> {
+  const res = await fetch(`${BASE}/write/suggestions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to regenerate suggestions");
+  const data = await res.json();
+  return (data.suggestions ?? []) as string[];
+}
+
 // ----- Custom hooks -----
 
 export function useBookLists() {
   return useQuery({
     queryKey: ["bookLists"],
     queryFn: fetchLists,
+  });
+}
+
+// ----- Character lists (a cast — never the same thing as a book list) -----
+
+export type CharacterList = { id: number; name: string; character_ids: number[] };
+
+export async function fetchCharacterLists(): Promise<CharacterList[]> {
+  const res = await fetch(`${BASE}/character-lists`);
+  if (!res.ok) throw new Error(`Failed to fetch character lists: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createCharacterList(name: string): Promise<CharacterList> {
+  const res = await fetch(`${BASE}/character-lists`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Failed to create character list: ${res.statusText}`);
+  return res.json();
+}
+
+export async function renameCharacterList(id: number, name: string): Promise<CharacterList> {
+  const res = await fetch(`${BASE}/character-lists/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to rename character list");
+  return res.json();
+}
+
+export async function setCharacterListMembers(id: number, characterIds: number[]): Promise<CharacterList> {
+  const res = await fetch(`${BASE}/character-lists/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ character_ids: characterIds }),
+  });
+  if (!res.ok) throw new Error("Failed to update character list");
+  return res.json();
+}
+
+export async function deleteCharacterList(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/character-lists/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete character list");
+  return res.json();
+}
+
+export function useCharacterLists() {
+  return useQuery({
+    queryKey: ["characterLists"],
+    queryFn: fetchCharacterLists,
+  });
+}
+
+// ----- Characters -----
+
+export async function fetchCharacters(params: { q?: string; calibreId?: number } = {}): Promise<Character[]> {
+  const res = await fetch(`${BASE}/characters${qs({ q: params.q, calibre_id: params.calibreId })}`);
+  if (!res.ok) throw new Error(`Failed to fetch characters: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchCharacter(id: number): Promise<Character> {
+  const res = await fetch(`${BASE}/characters/${id}`);
+  if (!res.ok) throw new Error("Character not found");
+  return res.json();
+}
+
+export async function createCharacter(payload: Partial<CharacterInput> & { name: string }): Promise<Character> {
+  const res = await fetch(`${BASE}/characters`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to create character: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateCharacter(id: number, patch: Partial<CharacterInput>): Promise<Character> {
+  const res = await fetch(`${BASE}/characters/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error("Failed to save character");
+  return res.json();
+}
+
+export async function deleteCharacter(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/characters/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete character");
+  return res.json();
+}
+
+export async function mergeCharacters(id: number, otherId: number): Promise<Character> {
+  const res = await fetch(`${BASE}/characters/${id}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ other_id: otherId }),
+  });
+  if (!res.ok) throw new Error("Failed to merge characters");
+  return res.json();
+}
+
+// Discovery + profile synthesis stream over SSE (see backend/routers/characters.py).
+
+export type CharacterCandidate = {
+  name: string;
+  aliases: string[];
+  role?: string | null;
+  description?: string | null;
+  source_book_ids: number[];
+  existing_id?: number | null;
+  existing_name?: string | null;
+  already_extracted?: boolean;
+  possible_duplicate?: boolean;
+};
+
+export type DiscoverEvent =
+  | { kind: "book"; calibre_id: number; title: string }
+  | { kind: "found"; calibre_id: number; count: number }
+  | { kind: "book_error"; calibre_id?: number; title?: string; error: string }
+  | { kind: "candidates"; candidates: CharacterCandidate[]; filtered: FilteredEntry[] }
+  | { kind: "done" };
+
+/** A named thing the extractor judged not to be a character (place, group, object). */
+export type FilteredEntry = { name: string; kind: string };
+
+export type ProfileEvent =
+  | { kind: "started"; name: string }
+  | { kind: "ok"; name: string; character: Character }
+  | { kind: "profile_error"; name: string; error: string }
+  | { kind: "done" };
+
+async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator<Record<string, unknown>> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        yield JSON.parse(line.slice(6)) as Record<string, unknown>;
+      } catch (e) {
+        console.warn("Malformed SSE event:", line, e);
+      }
+    }
+  }
+}
+
+export async function* discoverCharacters(
+  calibreIds: number[],
+  guidance = ""
+): AsyncGenerator<DiscoverEvent> {
+  const res = await fetch(`${BASE}/characters/discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ calibre_ids: calibreIds, guidance }),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail || `Discovery failed: ${res.statusText}`);
+  }
+
+  for await (const data of readSse(res.body)) {
+    const event = String(data.event ?? "");
+    if (event === "candidates") {
+      yield {
+        kind: "candidates",
+        candidates: (data.candidates ?? []) as CharacterCandidate[],
+        filtered: (data.filtered ?? []) as FilteredEntry[],
+      };
+    } else if (event === "book") {
+      yield { kind: "book", calibre_id: Number(data.calibre_id ?? 0), title: String(data.title ?? "") };
+    } else if (event === "found") {
+      yield { kind: "found", calibre_id: Number(data.calibre_id ?? 0), count: Number(data.count ?? 0) };
+    } else if (event === "error") {
+      yield {
+        kind: "book_error",
+        calibre_id: data.calibre_id === undefined ? undefined : Number(data.calibre_id),
+        title: data.title === undefined ? undefined : String(data.title),
+        error: String(data.error ?? "discovery failed"),
+      };
+    }
+  }
+  yield { kind: "done" };
+}
+
+export async function* streamProfiles(
+  characters: Array<{ name: string; aliases: string[]; role?: string | null; description?: string | null; calibre_ids: number[] }>,
+  guidance = "",
+  selection: number[] = []
+): AsyncGenerator<ProfileEvent> {
+  const res = await fetch(`${BASE}/characters/profiles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // `selection` is the whole run: evidence comes from every book in it, so a
+    // character is not profiled from a discovery sample's subset.
+    body: JSON.stringify({ characters, guidance, calibre_ids: selection }),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail || `Profile generation failed: ${res.statusText}`);
+  }
+
+  for await (const data of readSse(res.body)) {
+    const event = String(data.event ?? "");
+    if (event === "started") {
+      yield { kind: "started", name: String(data.name ?? "") };
+    } else if (event === "ok") {
+      yield { kind: "ok", name: String(data.name ?? ""), character: data.character as Character };
+    } else if (event === "error") {
+      yield { kind: "profile_error", name: String(data.name ?? ""), error: String(data.error ?? "failed") };
+    }
+  }
+  yield { kind: "done" };
+}
+
+export function useCharacters(q?: string) {
+  return useQuery({
+    queryKey: ["characters", q ?? ""],
+    queryFn: () => fetchCharacters({ q }),
   });
 }
