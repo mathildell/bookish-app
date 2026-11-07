@@ -83,6 +83,21 @@ def _book_to_detail(rec, indexed_ids: set[int]) -> BookDetail:
     )
 
 
+def _ignored_patterns() -> set[str]:
+    """Lowercased title substrings the user asked to hide in settings."""
+    try:
+        configured = deps.get_settings().ignored_books or []
+    except Exception:
+        return set()
+    return {t.lower().strip() for t in configured if t and t.strip()}
+
+
+def _is_ignored(title: str | None, patterns: set[str]) -> bool:
+    if not patterns:
+        return False
+    return any(pat in (title or "").lower() for pat in patterns)
+
+
 def _sort_safe(dt):
     """Normalize a datetime for sorting; fallback to 0."""
     if dt is None:
@@ -98,7 +113,7 @@ def _sort_safe(dt):
 # --------------------------------------------------------------------------- #
 
 @router.get("/books")
-async def list_books(
+def list_books(
     query: str = Query("", description="Search title or author"),
     status: str | None = Query(None),
     indexed: bool | None = Query(None, description="filter by index status"),
@@ -131,9 +146,9 @@ async def list_books(
         return BooksListResponse(cards=[], total=0, offset=offset)
 
     # Apply ignored filter
-    ign = {t.lower().strip() for t in (deps.get_settings().ignored_books or []) if t.strip()}
+    ign = _ignored_patterns()
     if ign:
-        all_cards = [c for c in all_cards if not any(pat in c[1].lower() for pat in ign)]
+        all_cards = [c for c in all_cards if not _is_ignored(c[1], ign)]
 
     # Lazy index lookup — never blocks on ChromaDB/Ollama being down
     try:
@@ -288,7 +303,7 @@ async def list_books(
 
 
 @router.get("/books/{calibre_id}")
-async def get_book(calibre_id: int):
+def get_book(calibre_id: int):
     reader = deps.get_reader()
     rec = reader.get_book_by_id(calibre_id)
     if not rec:
@@ -302,7 +317,7 @@ async def get_book(calibre_id: int):
 
 
 @router.get("/books/filters/metadata")
-async def get_filter_metadata():
+def get_filter_metadata():
     """Return all unique statuses for dropdown filters."""
     reader = deps.get_reader()
     if reader is None:
@@ -316,43 +331,44 @@ async def get_filter_metadata():
 
 
 @router.get("/arcs")
-async def list_arcs():
+def list_arcs():
     """Return ARC books for the tracker page."""
     reader = deps.get_reader()
     writer = deps.get_writer()
 
-    try:
-        all_books = reader.get_all_books()
-    except Exception:
-        return []
+    # Lightweight query: only loads books with a netgalley_deadline or tagged "ARC"
+    # (~8 batched SQL queries total vs. ~15× per-book in get_all_books)
+    arc_data = reader.get_arc_data()
 
-    arcs = [
-        b for b in all_books
-        if b.netgalley_deadline or any(t.lower() == "arc" for t in (b.tags or []))
-    ]
+    # Same ignored-books filter as the library grid
+    ign = _ignored_patterns()
 
     now_dt = datetime.now()
     results = []
-    for bk in arcs:
-        _dt = bk.netgalley_deadline
+    for (calibre_id, title, authors, _has_arc_tag, cover_path, personal_notes, goodreads_id, netgalley_deadline) in arc_data:
+        if _is_ignored(title, ign):
+            continue
+
         try:
-            dl = _dt.replace(tzinfo=None) if _dt and _dt.tzinfo else _dt
+            dl = netgalley_deadline.replace(tzinfo=None) if netgalley_deadline and netgalley_deadline.tzinfo else netgalley_deadline
         except Exception:
             dl = None
 
         delta = (now_dt - dl).days if dl else None
-        has_review = writer.has_review(bk)
+
+        # Fast in-memory check — just a dict lookup by Goodreads ID
+        has_review = goodreads_id and str(goodreads_id) in writer._id_index
         overdue = bool(delta and delta > 0) and not has_review
 
         results.append({
-            "calibre_id": bk.calibre_id,
-            "title": bk.title,
-            "authors": bk.authors or [],
-            "cover_uri": _cover_to_uri(bk.cover_path, max_size=120),
-            "netgalley_deadline": _fmt_date(bk.netgalley_deadline),
+            "calibre_id": calibre_id,
+            "title": title,
+            "authors": authors or [],
+            "cover_uri": _cover_to_uri(cover_path, max_size=120),
+            "netgalley_deadline": _fmt_date(netgalley_deadline),
             "days_past_due": delta if overdue else 0,
             "overdue": overdue,
-            "has_notes": bool(bk.personal_notes),
+            "has_notes": bool(personal_notes),
             "has_review": has_review,
         })
 
@@ -364,7 +380,7 @@ async def list_arcs():
 # --------------------------------------------------------------------------- #
 
 @router.post("/obsidian/{calibre_id}")
-async def write_obsidian(calibre_id: int, content: dict):
+def write_obsidian(calibre_id: int, content: dict):
     """Write a review to the Obsidian vault."""
     reader = deps.get_reader()
     writer = deps.get_writer()
@@ -377,7 +393,7 @@ async def write_obsidian(calibre_id: int, content: dict):
 
 
 @router.delete("/obsidian/{calibre_id}")
-async def delete_obsidian(calibre_id: int):
+def delete_obsidian(calibre_id: int):
     reader = deps.get_reader()
     writer = deps.get_writer()
     rec = reader.get_book_by_id(calibre_id)

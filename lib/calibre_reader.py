@@ -84,6 +84,106 @@ class CalibreReader:
                 pass
         return result
 
+    def get_arc_data(self) -> list[tuple[int, str, list[str], bool, str | None, str | None, str | None, datetime | None]]:
+        """Return lightweight tuples for ARC-book rendering.
+
+        Only loads books that have a netgalley_deadline or are tagged "ARC".
+
+        Returns (calibre_id, title, authors, has_arc_tag, cover_path, personal_notes, goodreads_id, netgalley_deadline).
+        Uses ~8 SQL queries total regardless of library size — orders of magnitude faster
+        than get_all_books() for large libraries.
+        """
+        # 1. all ids + titles
+        rows = self._exec("SELECT id, title FROM books ORDER BY id").fetchall()
+        if not rows:
+            return []
+
+        all_ids = [r["id"] for r in rows]
+        title_map = {r["id"]: r["title"] for r in rows}
+        ph = ",".join("?" * len(all_ids))
+
+        # 2. netgalley_deadline (cc24 — many-to-one)
+        deadline_map: dict[int, datetime | None] = {}
+        try:
+            for r in self._exec(
+                f"SELECT book, value FROM custom_column_24 WHERE book IN ({ph})",
+                all_ids,
+            ).fetchall():
+                deadline_map[r["book"]] = self._ts(r["value"]) if r["value"] else None
+        except sqlite3.OperationalError:
+            pass
+
+        # 3. ARC-tagged book ids (tags contain "ARC", case-insensitive)
+        arc_tag_ids: set[int] = set()
+        try:
+            for r in self._exec(
+                """SELECT btl.book FROM books_tags_link btl
+                   JOIN tags t ON btl.tag=t.id
+                   WHERE LOWER(t.name)='arc'""",
+            ).fetchall():
+                arc_tag_ids.add(r["book"])
+        except sqlite3.OperationalError:
+            pass
+
+        # Filter to ARC books only
+        arc_ids = [bid for bid in all_ids if deadline_map.get(bid) or bid in arc_tag_ids]
+        if not arc_ids:
+            return []
+
+        arc_ph = ",".join("?" * len(arc_ids))
+
+        # 4. authors (batched, ARC subset only)
+        author_map: dict[int, list[str]] = {}
+        for r in self._exec(
+            f"SELECT bal.book, a.name FROM books_authors_link bal "
+            f"JOIN authors a ON bal.author=a.id WHERE bal.book IN ({arc_ph})",
+            arc_ids,
+        ).fetchall():
+            author_map.setdefault(r["book"], []).append(r["name"])
+
+        # 5. cover path (batched)
+        cover_map: dict[int, str | None] = {}
+        for r in self._exec(
+            f"SELECT id, has_cover, path FROM books WHERE id IN ({arc_ph})",
+            arc_ids,
+        ).fetchall():
+            if r["has_cover"]:
+                cover_map[r["id"]] = os.path.join(self.library_root, str(r["path"]), "cover.jpg")
+
+        # 6. personal_notes (cc23 — batched)
+        notes_map: dict[int, str | None] = {}
+        try:
+            for r in self._exec(
+                f"SELECT book, value FROM custom_column_23 WHERE book IN ({arc_ph}) AND value IS NOT NULL",
+                arc_ids,
+            ).fetchall():
+                notes_map[r["book"]] = r["value"]
+        except sqlite3.OperationalError:
+            pass
+
+        # 7. goodreads_id (identifiers — batched)
+        gr_map: dict[int, str | None] = {}
+        for r in self._exec(
+            f"SELECT book, val FROM identifiers WHERE book IN ({arc_ph}) AND type='goodreads'",
+            arc_ids,
+        ).fetchall():
+            gr_map[r["book"]] = r["val"]
+
+        # Assemble ARC tuples
+        result: list[tuple[int, str, list[str], bool, str | None, str | None, str | None, datetime | None]] = []
+        for bid in arc_ids:
+            result.append((
+                bid,
+                title_map[bid],
+                author_map.get(bid, []),
+                bid in arc_tag_ids,
+                cover_map.get(bid),
+                notes_map.get(bid),
+                gr_map.get(bid),
+                deadline_map.get(bid),
+            ))
+        return result
+
     def get_books_card_data(self) -> list[tuple[int, str, list[str], str | None, float | None, str | None, int | None, datetime | None]]:
         """Return lightweight tuples for book-card rendering.
 

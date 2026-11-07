@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.post("/index/{calibre_id}")
-async def index_book(calibre_id: int):
+def index_book(calibre_id: int):
     """Start indexing a book (blocking — returns when done)."""
     reader = deps.get_reader()
     ingestor = deps.get_ingestor()
@@ -40,7 +40,7 @@ async def index_book(calibre_id: int):
 
 
 @router.post("/unindex/{calibre_id}")
-async def unindex_book(calibre_id: int):
+def unindex_book(calibre_id: int):
     """Remove a book's embeddings from ChromaDB."""
     ingestor = deps.get_ingestor()
     ingestor.delete_book(calibre_id)

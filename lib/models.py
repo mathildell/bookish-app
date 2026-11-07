@@ -46,6 +46,8 @@ class BookRecord:
 @dataclass
 class AppSettings:
     calibre_db_path: str = "~/Documents/Books/metadata.db"
+    # Web URL of the Calibre library, e.g. http://host:8080/#library_id=Calibre_Library
+    calibre_url: str = ""
     obsidian_vault_path: str = "~/BookReviews/"
     chroma_db_path: str = "data/chroma_db"
     ollama_host: str = "192.168.2.10"
