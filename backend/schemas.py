@@ -109,6 +109,7 @@ class UpdateListRequest(BaseModel):
 class AppSettingsResponse(BaseModel):
     """Full settings returned to the frontend, including computed genre categories."""
     calibre_db_path: str
+    calibre_url: str = ""
     obsidian_vault_path: str
     chroma_db_path: str
     ollama_host: str
@@ -126,6 +127,7 @@ class AppSettingsResponse(BaseModel):
 class AppSettingsUpdate(BaseModel):
     """Patch settings. Only supplied fields are updated."""
     calibre_db_path: Optional[str] = None
+    calibre_url: Optional[str] = None
     obsidian_vault_path: Optional[str] = None
     chroma_db_path: Optional[str] = None
     ollama_host: Optional[str] = None
@@ -137,3 +139,28 @@ class AppSettingsUpdate(BaseModel):
     top_k: Optional[int] = None
     ignored_books: Optional[list[str]] = None
     genre_colors: Optional[dict[str, str]] = None
+
+
+# --------------------------------------------------------------------------- #
+# Bookmarks                                                                   #
+# --------------------------------------------------------------------------- #
+
+class BookmarkCitation(BaseModel):
+    calibre_id: Optional[int] = None
+    title: str = ""
+
+
+class BookmarkCreate(BaseModel):
+    """A saved chat answer plus the question and citations it came with."""
+    question: str = ""
+    answer: str
+    citations: list[BookmarkCitation] = []
+    scope: str = "book"
+    calibre_ids: list[int] = []
+    note: str = ""
+    color: str = "yellow"
+
+
+class BookmarkUpdate(BaseModel):
+    note: Optional[str] = None
+    color: Optional[str] = None

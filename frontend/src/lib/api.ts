@@ -54,11 +54,19 @@ export async function fetchBook(id: number) {
 
 // ----- Settings -----
 
-export async function fetchGenreColors(): Promise<Record<string, string>> {
+export type SettingsSummary = {
+  genre_colors: Record<string, string>;
+  calibre_url: string;
+};
+
+export async function fetchSettingsSummary(): Promise<SettingsSummary> {
   const res = await fetch(`${BASE}/settings`);
   if (!res.ok) throw new Error(`Failed to fetch settings: ${res.statusText}`);
   const data = await res.json();
-  return data.genre_colors ?? {};
+  return {
+    genre_colors: data.genre_colors ?? {},
+    calibre_url: data.calibre_url ?? "",
+  };
 }
 
 // ----- Filters -----
@@ -167,7 +175,7 @@ export async function* streamChat(
   history: Array<{ role: "user" | "assistant"; content: string }>,
   calibreIds?: number[],
   scope: "book" | "multi_book" = "book"
-): AsyncGenerator<{ type: "token"; text: string } | { type: "done"; answer: string; citations: Array<{ calibre_id?: number; title: string }> } | { type: "error"; error: string }> {
+): AsyncGenerator<{ type: "thinking"; text: string } | { type: "token"; text: string } | { type: "done"; answer: string; citations: Array<{ calibre_id?: number; title: string }> } | { type: "error"; error: string }> {
   const res = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -197,7 +205,8 @@ export async function* streamChat(
       if (line.startsWith("data: ")) {
         try {
           const data = JSON.parse(line.slice(6));
-          if (data.token !== undefined) yield { type: "token", text: data.token };
+          if (data.thinking !== undefined) yield { type: "thinking", text: data.thinking };
+          else if (data.token !== undefined) yield { type: "token", text: data.token };
           else if (data.done) yield { type: "done", answer: data.answer, citations: data.citations };
           else if (data.error) yield { type: "error", error: data.error };
         } catch (e) {
@@ -269,6 +278,64 @@ export async function setListBooks(id: number, bookIds: number[]): Promise<BookL
 export async function deleteList(id: number): Promise<void> {
   const res = await fetch(`${BASE}/lists/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete list");
+  return res.json();
+}
+
+// ----- Bookmarks -----
+
+export type BookmarkCitation = { calibre_id?: number | null; title: string };
+
+export type Bookmark = {
+  id: number;
+  created_at: string;
+  question: string;
+  answer: string;
+  citations: BookmarkCitation[];
+  scope: string;
+  calibre_ids: number[];
+  note: string;
+  color: string;
+};
+
+export type BookmarkInput = {
+  question: string;
+  answer: string;
+  citations: BookmarkCitation[];
+  scope: string;
+  calibre_ids: number[];
+  note?: string;
+  color?: string;
+};
+
+export async function fetchBookmarks(): Promise<Bookmark[]> {
+  const res = await fetch(`${BASE}/bookmarks`);
+  if (!res.ok) throw new Error(`Failed to fetch bookmarks: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createBookmark(payload: BookmarkInput): Promise<Bookmark> {
+  const res = await fetch(`${BASE}/bookmarks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to save bookmark: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateBookmark(id: number, patch: { note?: string; color?: string }): Promise<Bookmark> {
+  const res = await fetch(`${BASE}/bookmarks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error("Failed to update bookmark");
+  return res.json();
+}
+
+export async function deleteBookmark(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/bookmarks/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete bookmark");
   return res.json();
 }
 

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend.dependencies import get_settings, init_services, shutdown_services
-from backend.routers import books, chat, ingest, settings as settings_router, lists
+from backend.routers import books, chat, ingest, settings as settings_router, lists, bookmarks
 
 
 @asynccontextmanager
@@ -22,6 +22,7 @@ app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(ingest.router, prefix="/api", tags=["index/ingest"])
 app.include_router(settings_router.router, prefix="/api", tags=["settings"])
 app.include_router(lists.router, prefix="/api", tags=["lists"])
+app.include_router(bookmarks.router, prefix="/api", tags=["bookmarks"])
 
 
 @app.get("/api/health")
