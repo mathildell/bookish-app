@@ -21,6 +21,8 @@ _reader: CalibreReader | None = None
 _writer: ObsidianWriter | None = None
 _ingestor = None  # imported lazily below
 _chat_engine = None
+_character_store = None
+_character_extractor = None
 _indexed_ids: set[int] = set()
 _chroma_ok: bool = False
 
@@ -97,6 +99,8 @@ def _load_settings_from_yaml() -> AppSettings:
     a2 = data.get("app", {})
     o2 = data.get("ollama", {})
     ing = data.get("ingestion", {})
+    writing = data.get("writing", {}) or {}
+    chat = data.get("chat", {}) or {}
 
     vault_raw: str = a2.get("obsidian_vault_path", os.environ.get("OBSIDIAN_VAULT", "~/BookReviews/"))
     vault_path = _resolve_path(vault_raw, here)
@@ -115,6 +119,13 @@ def _load_settings_from_yaml() -> AppSettings:
         ollama_host=o2.get("host", "192.168.2.10"),
         ollama_port=int(o2.get("port", 11434)),
         chat_model=o2.get("chat_model", os.environ.get("CHAT_MODEL", "llama3.1:8b")),
+        extraction_model=o2.get("extraction_model", "") or o2.get("chat_model", "llama3.1:8b"),
+        writing_model=o2.get("writing_model", "") or "",
+        writing_temperature=float(writing.get("temperature", 0.95)),
+        writing_top_p=float(writing.get("top_p", 0.95)),
+        writing_num_predict=int(writing.get("num_predict", 1200)),
+        chat_num_ctx=int(chat.get("num_ctx", 98304)),
+        chat_num_predict=int(chat.get("num_predict", 16384)),
         embedding_model=o2.get("embedding_model", os.environ.get("EMBED_MODEL", "nomic-embed-text-v2-moe")),
         chunk_size=int(ing.get("chunk_size", 600)),
         chunk_overlap=int(ing.get("chunk_overlap", 10)),
@@ -188,6 +199,28 @@ def get_chat_engine():
     _ensure_chroma()
     return _chat_engine
 
+def get_character_store():
+    """Lazily open data/characters.db — no ChromaDB or Ollama needed."""
+    global _character_store
+    if _character_store is None:
+        from lib.characters import CharacterStore as LazyCharacterStore
+
+        data_dir = Path(__file__).resolve().parent.parent / "data"
+        _character_store = LazyCharacterStore(data_dir / "characters.db")
+    return _character_store
+
+def get_character_extractor():
+    """Extraction needs retrieval, so this pulls in ChromaDB and Ollama."""
+    global _character_extractor
+    engine = get_chat_engine()
+    if engine is None:
+        raise RuntimeError("Chat engine unavailable — check the vector index")
+    if _character_extractor is None:
+        from lib.character_extractor import CharacterExtractor as LazyExtractor
+
+        _character_extractor = LazyExtractor(_settings, engine)
+    return _character_extractor
+
 def check_chroma_health():
     _ensure_chroma()
     return _chroma_ok
@@ -236,8 +269,10 @@ def refresh_indexed_cache():
 
 def init_services():
     global _settings, _reader, _writer, _indexed_ids, _chroma_ok
-    global _ingestor, _chat_engine, _chroma_initialized
+    global _ingestor, _chat_engine, _chroma_initialized, _character_store, _character_extractor
     _settings = _load_settings_from_yaml()
+    _character_store = None
+    _character_extractor = None
     _chroma_ok = False
 
     # The ingestor and chat engine capture the AppSettings object they were built

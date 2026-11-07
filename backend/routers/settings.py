@@ -82,7 +82,18 @@ def update_settings(update: AppSettingsUpdate):
             "host": current.ollama_host,
             "port": current.ollama_port,
             "chat_model": current.chat_model,
+            "extraction_model": current.extraction_model,
+            "writing_model": current.writing_model,
             "embedding_model": current.embedding_model,
+        },
+        "chat": {
+            "num_ctx": current.chat_num_ctx,
+            "num_predict": current.chat_num_predict,
+        },
+        "writing": {
+            "temperature": current.writing_temperature,
+            "top_p": current.writing_top_p,
+            "num_predict": current.writing_num_predict,
         },
         "ingestion": {
             "chunk_size": current.chunk_size,

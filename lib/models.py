@@ -53,6 +53,19 @@ class AppSettings:
     ollama_host: str = "192.168.2.10"
     ollama_port: int = 11434
     chat_model: str = "llama3.1:8b"
+    # Character work gets its own key so a stronger/different model can be swapped in
+    # without touching the Q&A model.
+    extraction_model: str = "llama3.1:8b"
+    # Empty means "same as chat_model"; the abliterated writing model goes here.
+    writing_model: str = ""
+    writing_temperature: float = 0.95
+    writing_top_p: float = 0.95
+    writing_num_predict: int = 1200
+    # Chat request limits. Ollama's own defaults (num_ctx 4096, unlimited
+    # num_predict) are wrong for RAG: the window truncates the retrieved
+    # passages, and an uncapped model can reason until it starves the machine.
+    chat_num_ctx: int = 98304
+    chat_num_predict: int = 16384
     embedding_model: str = "nomic-embed-text-v2-moe"
     chunk_size: int = 600
     chunk_overlap: int = 10
@@ -64,3 +77,11 @@ class AppSettings:
     @property
     def ollama_base_url(self) -> str:
         return f"http://{self.ollama_host}:{self.ollama_port}"
+
+    @property
+    def extraction_model_effective(self) -> str:
+        return self.extraction_model or self.chat_model
+
+    @property
+    def writing_model_effective(self) -> str:
+        return self.writing_model or self.chat_model

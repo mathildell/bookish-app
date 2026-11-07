@@ -102,6 +102,23 @@ class UpdateListRequest(BaseModel):
     book_ids: Optional[list[int]] = None
 
 
+class CharacterList(BaseModel):
+    """A user-created list of character profile ids — a cast, not a shelf of books."""
+    id: int
+    name: str
+    character_ids: list[int] = []
+
+
+class CreateCharacterListRequest(BaseModel):
+    name: str
+
+
+class UpdateCharacterListRequest(BaseModel):
+    """Patch a character list by ID. Only supplied fields are updated."""
+    name: Optional[str] = None
+    character_ids: Optional[list[int]] = None
+
+
 # --------------------------------------------------------------------------- #
 # Settings                                                                    #
 # --------------------------------------------------------------------------- #
@@ -115,6 +132,13 @@ class AppSettingsResponse(BaseModel):
     ollama_host: str
     ollama_port: int
     chat_model: str
+    extraction_model: str = ""
+    writing_model: str = ""
+    writing_temperature: float = 0.95
+    writing_top_p: float = 0.95
+    writing_num_predict: int = 1200
+    chat_num_ctx: int = 98304
+    chat_num_predict: int = 16384
     embedding_model: str
     chunk_size: int
     chunk_overlap: int
@@ -133,12 +157,185 @@ class AppSettingsUpdate(BaseModel):
     ollama_host: Optional[str] = None
     ollama_port: Optional[int] = None
     chat_model: Optional[str] = None
+    extraction_model: Optional[str] = None
+    writing_model: Optional[str] = None
+    writing_temperature: Optional[float] = None
+    writing_top_p: Optional[float] = None
+    writing_num_predict: Optional[int] = None
+    chat_num_ctx: Optional[int] = None
+    chat_num_predict: Optional[int] = None
     embedding_model: Optional[str] = None
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None
     top_k: Optional[int] = None
     ignored_books: Optional[list[str]] = None
     genre_colors: Optional[dict[str, str]] = None
+
+
+# --------------------------------------------------------------------------- #
+# Characters                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+class CharacterMotivations(BaseModel):
+    wants: str = ""
+    needs: str = ""
+
+
+class CharacterVoice(BaseModel):
+    """How the character talks — the field that keeps dialogue from blurring together.
+
+    `tone` is the speech register; it can't be called `register` because that
+    shadows a pydantic BaseModel attribute.
+    """
+    tone: str = ""
+    rhythm: str = ""
+    tells: list[str] = []
+    humour: str = ""
+
+
+class CharacterAppearance(BaseModel):
+    """`signature` holds only portable physical facts (build, colouring, marks)."""
+    signature: str = ""
+    presentation: str = ""
+
+
+class RelationshipPattern(BaseModel):
+    """A reusable dynamic ("protective older sibling"), not a cast list."""
+    dynamic: str = ""
+    behaviour: str = ""
+
+
+class Character(BaseModel):
+    id: int
+    name: str
+    aliases: list[str] = []
+    role: Optional[str] = None
+    archetype: Optional[str] = None
+    summary: Optional[str] = None
+    core_traits: list[str] = []
+    motivations: CharacterMotivations = CharacterMotivations()
+    fears: list[str] = []
+    flaws: list[str] = []
+    values: list[str] = []
+    voice: CharacterVoice = CharacterVoice()
+    mannerisms: list[str] = []
+    appearance: CharacterAppearance = CharacterAppearance()
+    relationships: list[RelationshipPattern] = []
+    formative_experience: Optional[str] = None
+    arc_pattern: Optional[str] = None
+    situational_anchors: list[str] = []
+    thumbnail: Optional[str] = None
+    status: str = "complete"
+    error: Optional[str] = None
+    model: Optional[str] = None
+    source_book_ids: list[int] = []
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class CharacterCreate(BaseModel):
+    name: str
+    aliases: list[str] = []
+    role: Optional[str] = None
+    archetype: Optional[str] = None
+    summary: Optional[str] = None
+    core_traits: list[str] = []
+    motivations: CharacterMotivations = CharacterMotivations()
+    fears: list[str] = []
+    flaws: list[str] = []
+    values: list[str] = []
+    voice: CharacterVoice = CharacterVoice()
+    mannerisms: list[str] = []
+    appearance: CharacterAppearance = CharacterAppearance()
+    relationships: list[RelationshipPattern] = []
+    formative_experience: Optional[str] = None
+    arc_pattern: Optional[str] = None
+    situational_anchors: list[str] = []
+    thumbnail: Optional[str] = None
+    status: str = "complete"
+    error: Optional[str] = None
+    model: Optional[str] = None
+    source_book_ids: list[int] = []
+
+
+class CharacterUpdate(BaseModel):
+    """Patch a profile. Only supplied fields change."""
+    name: Optional[str] = None
+    aliases: Optional[list[str]] = None
+    role: Optional[str] = None
+    archetype: Optional[str] = None
+    summary: Optional[str] = None
+    core_traits: Optional[list[str]] = None
+    motivations: Optional[CharacterMotivations] = None
+    fears: Optional[list[str]] = None
+    flaws: Optional[list[str]] = None
+    values: Optional[list[str]] = None
+    voice: Optional[CharacterVoice] = None
+    mannerisms: Optional[list[str]] = None
+    appearance: Optional[CharacterAppearance] = None
+    relationships: Optional[list[RelationshipPattern]] = None
+    formative_experience: Optional[str] = None
+    arc_pattern: Optional[str] = None
+    situational_anchors: Optional[list[str]] = None
+    thumbnail: Optional[str] = None
+    status: Optional[str] = None
+    error: Optional[str] = None
+    model: Optional[str] = None
+    source_book_ids: Optional[list[int]] = None
+
+
+class CharacterMergeRequest(BaseModel):
+    other_id: int
+
+
+class WriteTurn(BaseModel):
+    """One side of the scene conversation."""
+
+    role: str
+    content: str
+
+
+class WriteRequest(BaseModel):
+    """A scene request: what happens, who is in it, and under which genre."""
+
+    message: str = ""
+    history: list[WriteTurn] = []
+    character_ids: list[int] = []
+    genre: str = ""
+
+
+class WriteSuggestionsRequest(BaseModel):
+    """Ask for fresh suggestion pills without writing a new scene."""
+
+    character_ids: list[int] = []
+    history: list[WriteTurn] = []
+
+
+class DiscoverRequest(BaseModel):
+    calibre_ids: list[int] = []
+    # Freeform user notes ("Laurent is the protagonist, Uncle is the antagonist").
+    # Passed to the model as authoritative over its own reading.
+    guidance: str = ""
+
+
+class ProfileCandidate(BaseModel):
+    """One character the user chose to profile in the discovery list."""
+    name: str
+    aliases: list[str] = []
+    role: Optional[str] = None
+    description: Optional[str] = None
+    calibre_ids: list[int] = []
+
+
+class ProfilesRequest(BaseModel):
+    characters: list[ProfileCandidate] = []
+    guidance: str = ""
+    # The whole selection for this run. Evidence is gathered from these books as
+    # well as each candidate's own sources: a character's recorded sources only say
+    # where discovery's sampled excerpts happened to name them, which can be a
+    # subset of the books that actually mention them.
+    calibre_ids: list[int] = []
 
 
 # --------------------------------------------------------------------------- #
