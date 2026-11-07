@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
 import Tooltip from "@/components/Tooltip";
+import ThreadEmpty from "@/components/ThreadEmpty";
 
 interface Props {
   calibreIds?: number[];
@@ -180,11 +181,7 @@ export default function ChatInterface({
     >
       {/* Messages area */}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-        {welcomeMessage && messages.length === 0 && (
-          <div className="bg-zinc-800/60 rounded-lg p-4 text-sm text-zinc-300">
-            {welcomeMessage}
-          </div>
-        )}
+        {welcomeMessage && messages.length === 0 && <ThreadEmpty>{welcomeMessage}</ThreadEmpty>}
 
         {messages.map((msg, i) => (
           <div key={i} className="flex flex-col">
