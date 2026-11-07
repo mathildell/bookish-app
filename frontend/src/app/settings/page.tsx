@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 
 interface SettingsData {
   calibre_db_path: string;
+  calibre_url: string;
   obsidian_vault_path: string;
   chroma_db_path: string;
   ollama_host: string;
@@ -148,7 +149,7 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-3xl pt-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
       {/* App paths */}
@@ -156,6 +157,9 @@ export default function SettingsPage() {
         <TextRow label="Calibre Database" value={form.calibre_db_path} 
           onChange={(v) => handleChange("calibre_db_path", v)}
           help="Path to your Calibre metadata.db file" />
+        <TextRow label="Calibre URL" value={form.calibre_url ?? ""}
+          onChange={(v) => handleChange("calibre_url", v)}
+          help="Web address of your Calibre library, used by the Calibre tab on book pages. The book ID is appended as &book_id=… (e.g. http://host:8080/#library_id=Calibre_Library)" />
         <TextRow label="Obsidian Vault" value={form.obsidian_vault_path} 
           onChange={(v) => handleChange("obsidian_vault_path", v)}
           help="Root directory for book reviews and ARC notes" />

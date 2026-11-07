@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchFilterMetadata, fetchLists, createList, renameList, deleteList, type BookList } from "@/lib/api";
 
@@ -305,6 +306,26 @@ function ListRow({
 
       {/* Management icons — only show when not the active filter */}
       <span className="flex gap-1">
+        {/* Chat with every book in this list (?ids= is the chat page's selection) */}
+        {list.book_ids.length > 0 ? (
+          <Link
+            href={{ pathname: "/chat", query: { ids: list.book_ids.join(",") } }}
+            title={`Chat with the ${list.book_ids.length} book${list.book_ids.length !== 1 ? "s" : ""} in "${list.name}"`}
+            onMouseDown={(e) => { e.stopPropagation(); }}
+            className={`${ICON_BTN} text-zinc-400 hover:text-yellow-400 hover:border-zinc-600`}
+          >
+            💬
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title="This list has no books yet"
+            className={`${ICON_BTN} text-zinc-600 opacity-40 cursor-not-allowed`}
+          >
+            💬
+          </button>
+        )}
         <button
           type="button"
           title="Rename"

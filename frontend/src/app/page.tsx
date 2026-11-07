@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import BookGrid from "@/components/BookGrid";
 import SearchBar from "@/components/SearchBar";
 import FilterSidebar from "@/components/FilterSidebar";
+import Tooltip from "@/components/Tooltip";
 import type { Filters } from "@/components/FilterSidebar";
 import Link from "next/link";
 import { batchIndexBooks, createList, setListBooks, unindexBook, useBookLists, type BatchIndexEvent } from "@/lib/api";
@@ -11,6 +12,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 // Height of the sticky nav (h-14 + pt-2 + 1px border) — the header sticks just below it.
 const NAV_HEIGHT = 65;
+
+// Icon-only buttons in the selection toolbar; each button's tooltip carries its wording.
+const ACTION_BTN =
+  "flex h-9 w-9 items-center justify-center rounded-lg text-base leading-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
 
 type BatchProgress = {
   running: boolean;
@@ -229,6 +234,11 @@ export default function LibraryPage() {
   const selectedIndexed = selectedIds.filter((id) => bookMetaRef.current[id]?.indexed);
   const selectedUnindexed = selectedIds.filter((id) => !bookMetaRef.current[id]?.indexed);
 
+  // Toolbar counts for the icon tooltips.
+  const selectionLabel = `${selectedIds.length} book${selectedIds.length !== 1 ? "s" : ""}`;
+  const unindexedLabel = `${selectedUnindexed.length} book${selectedUnindexed.length !== 1 ? "s" : ""}`;
+  const indexedLabel = `${selectedIndexed.length} book${selectedIndexed.length !== 1 ? "s" : ""}`;
+
   // Active list badge showing count + name when list filter is applied
   const activeBadge = activeList ? (
     <span className="text-xs bg-yellow-900/30 text-yellow-300 px-2.5 py-1 rounded-full whitespace-nowrap flex items-center gap-2">
@@ -262,59 +272,57 @@ export default function LibraryPage() {
           {selectedIds.length > 0 && (
             <>
               <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
-                {/* Chat button */}
-                <Link
-                  href={{ pathname: "/chat", query: { ids: selectedIds.join(",") } }}
-                  className="bg-yellow-600 hover:bg-yellow-500 text-zinc-900 font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
-                >
-                  💬 Chat with {selectedIds.length} book{selectedIds.length > 1 ? "s" : ""}
-                </Link>
+                {/* Chat with the selection */}
+                <Tooltip label={`Chat with ${selectionLabel}`} align="right">
+                  <Link
+                    href={{ pathname: "/chat", query: { ids: selectedIds.join(",") } }}
+                    aria-label={`Chat with ${selectionLabel}`}
+                    className={`${ACTION_BTN} bg-yellow-600 hover:bg-yellow-500 text-zinc-900`}
+                  >
+                    💬
+                  </Link>
+                </Tooltip>
 
                 {/* Index only the selected books that are not indexed yet */}
                 {selectedUnindexed.length > 0 && (
-                  <button
-                    onClick={handleBatchIndex}
-                    disabled={progress.running || selectedIds.length < 2}
-                    className={`font-semibold px-4 py-2 rounded-lg text-sm transition-colors ${
-                      progress.running
-                        ? "bg-zinc-600 text-zinc-400 cursor-not-allowed"
-                        : "bg-green-700 hover:bg-green-600 text-white"
-                    }`}
-                  >
-                    {progress.running && progressKind === "index"
-                      ? `Indexing… (${progress.done}/${progress.total})`
-                      : `Index ${selectedUnindexed.length} book${selectedUnindexed.length > 1 ? "s" : ""}`}
-                  </button>
+                  <Tooltip label={`Add ${unindexedLabel} to the search index`} align="right">
+                    <button
+                      onClick={handleBatchIndex}
+                      disabled={progress.running || selectedIds.length < 2}
+                      aria-label={`Add ${unindexedLabel} to the search index`}
+                      className={`${ACTION_BTN} bg-green-700 hover:bg-green-600 text-white`}
+                    >
+                      🗄️
+                    </button>
+                  </Tooltip>
                 )}
 
                 {/* Remove the selected books that are already indexed */}
                 {selectedIndexed.length > 0 && (
-                  <button
-                    onClick={handleBatchUnindex}
-                    disabled={progress.running}
-                    className={`font-semibold px-4 py-2 rounded-lg text-sm transition-colors ${
-                      progress.running
-                        ? "bg-zinc-600 text-zinc-400 cursor-not-allowed"
-                        : "bg-red-900/60 hover:bg-red-800/80 text-red-200"
-                    }`}
-                  >
-                    {progress.running && progressKind === "unindex"
-                      ? `Removing… (${progress.done}/${progress.total})`
-                      : `Remove ${selectedIndexed.length} from index`}
-                  </button>
+                  <Tooltip label={`Remove ${indexedLabel} from the search index`} align="right">
+                    <button
+                      onClick={handleBatchUnindex}
+                      disabled={progress.running}
+                      aria-label={`Remove ${indexedLabel} from the search index`}
+                      className={`${ACTION_BTN} bg-red-900/60 hover:bg-red-800/80 text-red-200`}
+                    >
+                      🗄️
+                    </button>
+                  </Tooltip>
                 )}
 
                 {/* List management buttons */}
                 {activeList ? (
-                  <>
+                  <Tooltip label={`Remove ${selectionLabel} from "${activeList.name}"`} align="right">
                     <button
                       onClick={handleRemoveFromList}
                       disabled={selectedIds.length >= (activeList.book_ids.length ?? 0) || mutateBooks.isPending}
-                      className="bg-red-900/60 hover:bg-red-800/80 text-red-200 font-semibold px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                      aria-label={`Remove ${selectionLabel} from "${activeList.name}"`}
+                      className={`${ACTION_BTN} bg-red-900/60 hover:bg-red-800/80 text-red-200`}
                     >
-                      − Remove from list
+                      📋
                     </button>
-                  </>
+                  </Tooltip>
                 ) : (
                   <>
                     {/* Add to existing list — dropdown + confirm button */}
@@ -323,39 +331,47 @@ export default function LibraryPage() {
                         <select
                           value={targetListId ?? ""}
                           onChange={(e) => setTargetListId(e.target.value ? Number(e.target.value) : null)}
-                          className="bg-zinc-800 border border-zinc-600 text-zinc-100 font-semibold px-2 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-auto"
+                          className="h-9 bg-zinc-800 border border-zinc-600 text-zinc-100 font-semibold px-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-auto"
                         >
                           <option value="">+ Add to list…</option>
                           {lists.map((l) => (
                             <option key={l.id} value={l.id}>{l.name}</option>
                           ))}
                         </select>
-                        <button
-                          onClick={handleAddToList}
-                          disabled={!targetListId || mutateBooks.isPending}
-                          className="bg-blue-800 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-3 py-2 rounded-lg text-sm transition-colors"
-                        >
-                          OK
-                        </button>
+                        <Tooltip label={`Add ${selectionLabel} to the chosen list`} align="right">
+                          <button
+                            onClick={handleAddToList}
+                            disabled={!targetListId || mutateBooks.isPending}
+                            aria-label={`Add ${selectionLabel} to the chosen list`}
+                            className={`${ACTION_BTN} bg-zinc-700 hover:bg-zinc-600 text-zinc-100`}
+                          >
+                            ✓
+                          </button>
+                        </Tooltip>
                       </div>
                     )}
-                    <button
-                      onClick={handleSaveAsNewList}
-                      className="bg-zinc-700 hover:bg-zinc-600 text-zinc-100 font-semibold px-3 py-2 rounded-lg text-sm transition-colors"
-                    >
-                      📋 Save as new list…
-                    </button>
+                    <Tooltip label="Save selection as a new list" align="right">
+                      <button
+                        onClick={handleSaveAsNewList}
+                        aria-label="Save selection as a new list"
+                        className={`${ACTION_BTN} bg-zinc-700 hover:bg-zinc-600 text-zinc-100`}
+                      >
+                        📝
+                      </button>
+                    </Tooltip>
                   </>
                 )}
 
                 {/* Dismiss the whole selection */}
-                <button
-                  onClick={clearSelection}
-                  title="Clear selection"
-                  className="bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 font-semibold px-3 py-2 rounded-lg text-sm border border-zinc-700/60 transition-colors"
-                >
-                  ✕ Clear selection
-                </button>
+                <Tooltip label="Clear selection" align="right">
+                  <button
+                    onClick={clearSelection}
+                    aria-label="Clear selection"
+                    className={`${ACTION_BTN} bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border border-zinc-700/60`}
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
               </div>
             </>
           )}
@@ -415,7 +431,7 @@ export default function LibraryPage() {
         </aside>
 
         {/* Books — scroll with the page, like normal document flow */}
-        <div className="min-w-0 pb-16 pt-8 pl-1">
+        <div className="min-w-0 pb-16 pt-6 pl-1">
           <BookGrid
             query={filters.query}
             status={filters.status}

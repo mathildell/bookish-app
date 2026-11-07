@@ -74,7 +74,7 @@ export default function ArcTrackerPage() {
   const unreviewed = total - sorted.filter((a) => a.has_review).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-6">
       <h1 className="text-2xl font-bold tracking-tight">ARC Tracker</h1>
       <p className="text-sm text-zinc-500 -mt-4">
         Track Advance Reader Copies: deadlines, review status, and quick-glance metrics.

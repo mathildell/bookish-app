@@ -1,12 +1,12 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchBook } from "@/lib/api";
 import type { BookDetail } from "@/types/book";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState, useEffect } from "react";
-import ChatInterface from "@/components/ChatInterface";
-import { indexBook, unindexBook, writeObsidianReview, fetchGenreColors } from "@/lib/api";
+import { indexBook, unindexBook, writeObsidianReview, fetchSettingsSummary } from "@/lib/api";
 
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
@@ -29,6 +29,10 @@ function genreCategory(genre: string) {
 function withAlpha(hex: string, alpha: string) {
   return /^#[0-9a-fA-F]{6}$/.test(hex) ? `${hex}${alpha}` : undefined;
 }
+
+// Shared look for the external-link chips (Goodreads, Calibre).
+const LINK_CHIP =
+  "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white";
 
 export default function BookDetailPage() {
   const params = useParams();
@@ -56,11 +60,14 @@ export default function BookDetailPage() {
 
 function BookDetailContent({ book }: { book: BookDetail }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"blurb" | "notes" | "obsidian">("blurb");
-  const { data: genreColors } = useQuery({
-    queryKey: ["settings", "genre-colors"],
-    queryFn: fetchGenreColors,
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: ["settings", "summary"],
+    queryFn: fetchSettingsSummary,
   });
+  const genreColors = settings?.genre_colors;
+  // Configured library URL; a trailing "&" would double up with the book_id we append.
+  const calibreUrl = (settings?.calibre_url ?? "").trim().replace(/&+$/, "");
   const isArc = (book.tags ?? []).some((t) => t.trim().toLowerCase() === "arc");
   const tags = (book.tags ?? []).filter((t) => t.trim());
   const genres = (book.genres ?? []).filter((g) => g.trim());
@@ -74,17 +81,24 @@ function BookDetailContent({ book }: { book: BookDetail }) {
     return "🌕".repeat(full) + "🌗".repeat(half) + "🌑".repeat(empty);
   };
 
-  const onIndex = async () => {
-    await indexBook(book.id);
-    router.refresh();
-  };
-  const onUnindex = async () => {
-    await unindexBook(book.id);
+  // Index state decides whether the chat button exists, so refresh the cached
+  // book record as well as the server-rendered tree.
+  const refreshBook = () => {
+    queryClient.invalidateQueries({ queryKey: ["book", book.id] });
     router.refresh();
   };
 
+  const onIndex = async () => {
+    await indexBook(book.id);
+    refreshBook();
+  };
+  const onUnindex = async () => {
+    await unindexBook(book.id);
+    refreshBook();
+  };
+
   return (
-    <div className="grid grid-cols-4 gap-8">
+    <div className="grid grid-cols-4 gap-8 pt-4">
       {/* Left: cover + metadata */}
       <div className="col-span-1 space-y-4">
         <div className="rounded-xl overflow-hidden shadow-lg bg-zinc-900 w-full max-w-xs mx-auto">
@@ -95,8 +109,8 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           )}
         </div>
 
-        {/* Index toggle */}
-        <div>
+        {/* Index toggle + chat */}
+        <div className="space-y-2">
           <button
             onClick={book.indexed ? onUnindex : onIndex}
             className={`w-full py-2 rounded-lg text-sm font-semibold border-none cursor-pointer ${
@@ -107,6 +121,16 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           >
             {book.indexed ? "Remove from index" : "Index this book"}
           </button>
+
+          {/* Nothing to chat with until the book has content in the index */}
+          {book.indexed && (
+            <Link
+              href={`/chat?ids=${book.id}`}
+              className="block w-full py-2 rounded-lg text-center text-sm font-semibold bg-yellow-600 hover:bg-yellow-500 text-zinc-900 transition-colors"
+            >
+              💬 Chat with this book
+            </Link>
+          )}
         </div>
 
         {/* Metadata */}
@@ -134,110 +158,105 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           )}
         </dl>
 
-        {/* Tags and genres */}
-        {tags.length > 0 && (
-          <div>
-            <div className="text-sm text-zinc-500 mb-1">Tags</div>
-            <div className="flex flex-wrap gap-1.5">
-              {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-zinc-800 text-zinc-200 rounded-full px-2 py-0.5 text-xs"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {genres.length > 0 && (
-          <div>
-            <div className="text-sm text-zinc-500 mb-1">Genres</div>
-            <div className="flex flex-wrap gap-1.5">
-              {genres.map((genre) => {
-                const color = genreColors?.[genreCategory(genre)];
-                return (
-                  <span
-                    key={genre}
-                    className={`rounded-full border px-2 py-0.5 text-xs ${
-                      color ? "" : "bg-yellow-500/10 text-yellow-300 border-transparent"
-                    }`}
-                    style={
-                      color
-                        ? {
-                            backgroundColor: withAlpha(color, "1a"),
-                            borderColor: withAlpha(color, "40"),
-                            color,
-                          }
-                        : undefined
-                    }
-                  >
-                    {genre}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Right: tabs + chat */}
+      {/* Right: tags, links, blurb, notes, review */}
       <div className="col-span-3 space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">{book.title}</h1>
 
-        {/* Tags */}
-
-        {/* Tabs */}
-        <div>
-          <div className="flex gap-4 border-b border-zinc-800 mb-4">
-            {(["blurb", "notes", "obsidian"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`pb-2 text-sm font-medium transition-colors ${
-                  activeTab === tab
-                    ? "text-yellow-400 border-b-2 border-yellow-400"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
+        {/* Genres (tinted by category) followed by tags */}
+        {(genres.length > 0 || tags.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {genres.map((genre) => {
+              const color = genreColors?.[genreCategory(genre)];
+              return (
+                <span
+                  key={`genre-${genre}`}
+                  className={`rounded-full border px-2 py-0.5 text-xs ${
+                    color ? "" : "bg-yellow-500/10 text-yellow-300 border-transparent"
+                  }`}
+                  style={
+                    color
+                      ? {
+                          backgroundColor: withAlpha(color, "1a"),
+                          borderColor: withAlpha(color, "40"),
+                          color,
+                        }
+                      : undefined
+                  }
+                >
+                  {genre}
+                </span>
+              );
+            })}
+            {tags.map((tag) => (
+              <span
+                key={`tag-${tag}`}
+                className="bg-zinc-800 text-zinc-200 rounded-full px-2 py-0.5 text-xs"
               >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
+                {tag}
+              </span>
             ))}
           </div>
+        )}
 
-          {activeTab === "blurb" && (
-            <div className="w-full min-h-[200px] max-h-screen overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
-              {book.blurb ? (
-                <div dangerouslySetInnerHTML={{ __html: book.blurb }} />
-              ) : (
-                <div className="text-stone-500 italic py-8 text-center">No blurb for this book.</div>
-              )}
-            </div>
-          )}
+        {/* External links */}
+        {(book.goodreads_id || calibreUrl) && (
+          <div className="flex flex-wrap gap-2">
+            {book.goodreads_id && (
+              <a
+                href={`https://www.goodreads.com/book/show/${book.goodreads_id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open this book on Goodreads"
+                className={LINK_CHIP}
+              >
+                Goodreads ↗
+              </a>
+            )}
+            {calibreUrl && (
+              <a
+                href={`${calibreUrl}&book_id=${book.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open this book in Calibre"
+                className={LINK_CHIP}
+              >
+                Calibre ↗
+              </a>
+            )}
+          </div>
+        )}
 
-          {activeTab === "notes" && (
-            <div className="w-full min-h-[200px] max-h-screen overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
-              {book.personal_notes ? (
-                <div dangerouslySetInnerHTML={{ __html: book.personal_notes }} />
-              ) : (
-                <div className="text-stone-500 italic py-8 text-center">No Calibre notes for this book.</div>
-              )}
-            </div>
-          )}
+        {/* Blurb */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Blurb</h2>
+          <div className="w-full max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
+            {book.blurb ? (
+              <div dangerouslySetInnerHTML={{ __html: book.blurb }} />
+            ) : (
+              <div className="text-stone-500 italic py-6 text-center">No blurb for this book.</div>
+            )}
+          </div>
+        </section>
 
-          {activeTab === "obsidian" && (
-            <ObsidianTab book={book} />
-          )}
-        </div>
+        {/* Calibre notes */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Calibre notes</h2>
+          <div className="w-full max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
+            {book.personal_notes ? (
+              <div dangerouslySetInnerHTML={{ __html: book.personal_notes }} />
+            ) : (
+              <div className="text-stone-500 italic py-6 text-center">No Calibre notes for this book.</div>
+            )}
+          </div>
+        </section>
 
-        {/* Single-book chat */}
-        <ChatInterface
-          calibreIds={[book.id]}
-          scope="book"
-          placeholder={`Ask about ${book.title}…`}
-          welcomeMessage={<>📖 Ask me anything about <strong>{book.title}</strong>! I'll search the indexed content.</>}
-        />
+        {/* Obsidian review (markdown) */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Obsidian review</h2>
+          <ObsidianTab book={book} />
+        </section>
       </div>
     </div>
   );
