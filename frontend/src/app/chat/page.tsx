@@ -122,13 +122,13 @@ function ChatPageContent() {
   const chatKey = selectedIds.length ? selectedIds.slice().sort((a, b) => a - b).join("-") : "library";
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-7.5rem)] pt-6">
+    <div className="flex h-[calc(100vh-5.5625rem)] flex-col overflow-hidden pt-4">
       <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
       <p className="text-sm text-zinc-500 mt-1 mb-4">{description}</p>
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar: context selection */}
-        <aside className="w-[200px] flex-shrink-0 bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col gap-3 overflow-hidden">
+        <aside className="w-[200px] flex-shrink-0 min-h-0 overflow-hidden bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col gap-3">
           <div className="flex items-center justify-between flex-shrink-0">
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Context</p>
             {selectedIds.length > 0 && (
@@ -154,12 +154,18 @@ function ChatPageContent() {
 
           {/* Selected books grid */}
           {selectedIds.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2 flex-1 content-start overflow-y-auto min-h-0">
+            <div className="grid flex-1 min-h-0 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto">
+              {/* Only the cover grid scrolls: the header and the add-books footer
+                  stay pinned, so a long selection can never push the picker out
+                  of reach. */}
               {selectedIds.map((id) => {
                 const book = selectedBooks.find((b) => b.id === id);
                 return (
-                  <div key={id} className="group/book relative aspect-[5/7] rounded-lg overflow-hidden bg-zinc-800">
-                    <Link href={`/book/${id}`} className="block w-full h-full">
+                  <div key={id} className="group/book relative aspect-[5/7] rounded-lg bg-zinc-800">
+                    {/* Clipping lives on the link, not on this grid item: overflow-hidden
+                        on a grid item zeroes its automatic minimum size, which lets the
+                        row collapse under the cover and overlap the next row. */}
+                    <Link href={`/book/${id}`} className="block w-full h-full overflow-hidden rounded-lg">
                       {book?.cover_uri ? (
                         <img src={book.cover_uri} alt={book.title} className="w-full h-full object-cover" />
                       ) : (
@@ -257,14 +263,15 @@ function ChatPageContent() {
         </aside>
 
         {/* Chat */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 min-h-0">
           <ChatInterface
             key={chatKey}
             calibreIds={selectedIds.length ? selectedIds : undefined}
             scope={selectedIds.length > 1 ? "multi_book" : "book"}
             placeholder={placeholder}
             welcomeMessage={welcomeMessage}
-            className="h-full min-h-0 flex flex-col"
+            fill
+            className="flex flex-col"
           />
         </div>
       </div>
