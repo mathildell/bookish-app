@@ -37,8 +37,10 @@ _SYSTEM = (
     f"{_SUGGEST_OPEN}\n"
     '["...", "...", "..."]\n'
     f"{_SUGGEST_CLOSE}\n"
-    "Make the three beats differ in register: one raises the stakes, one softens and "
-    "turns romantic, one is unexpected and wry."
+    "Each suggestion is a nudge of at most eight words — a vague direction for the "
+    "scene, never a sentence of prose: no trailing full stop, no emotion words, no "
+    "summary of what just happened. Make the three differ in register: one raises the "
+    "stakes, one softens and turns romantic, one is unexpected and wry."
 )
 
 
@@ -128,11 +130,36 @@ def format_cast(profiles: list[dict]) -> str:
 # The scene stream asks for a sentinel block, but small models routinely ignore it.
 # The dedicated call below uses JSON mode and a schema-shaped instruction instead.
 _SUGGEST_SYSTEM = (
-    "You are a story editor. Given a scene, propose exactly three next beats for it. "
-    "Each beat is one sentence, concrete, and in a different register: one raises the "
-    "stakes, one softens and turns romantic, one is unexpected and wry. "
+    "You are a story editor. Given a scene, propose exactly three routes it could take "
+    "next. Each is a short nudge of at most eight words — a direction, not prose: who "
+    "acts, what shifts, what is revealed. Vague and tantalising is good. Do not "
+    "summarise the scene, do not write the next paragraph, do not name emotions, no "
+    "trailing full stop. Vary the register: one raises the stakes, one softens toward "
+    "romance, one is unexpected and wry.\n\n"
+    'Example for a scene about a locked study: {"suggestions": ["The key is already '
+    'in the door", "She admits why she lied", "A cat knocks something over"]}\n\n'
     'Reply as JSON only: {"suggestions": ["beat one", "beat two", "beat three"]}'
 )
+
+# A pill, not a paragraph: models still overshoot, so a beat is cut at its first
+# sentence end or the last word before the cap.
+_MAX_BEAT_CHARS = 80
+
+
+def _tidy_beat(beat: str) -> str:
+    """One short nudge, no trailing stop, bounded for the pill."""
+    text = " ".join(str(beat).split())
+    if not text:
+        return ""
+    for stop in (". ", "! ", "? ", " — "):
+        index = text.find(stop)
+        if 0 <= index <= _MAX_BEAT_CHARS:
+            text = text[:index]
+            break
+    text = text.rstrip(" .,;:!?…—-")
+    if len(text) > _MAX_BEAT_CHARS:
+        text = text[:_MAX_BEAT_CHARS].rsplit(" ", 1)[0].rstrip(" .,;:—-") + "…"
+    return text
 
 
 def parse_json_suggestions(text: str) -> list[str]:
@@ -158,7 +185,7 @@ def parse_json_suggestions(text: str) -> list[str]:
         return []
     if not isinstance(items, list):
         return []
-    return [str(item).strip() for item in items if str(item).strip()][:3]
+    return [beat for beat in (_tidy_beat(item) for item in items) if beat][:3]
 
 
 def parse_suggestions(text: str) -> list[str]:
@@ -176,7 +203,7 @@ def parse_suggestions(text: str) -> list[str]:
         return []
     if not isinstance(data, list):
         return []
-    beats = [str(item).strip() for item in data if str(item).strip()]
+    beats = [beat for beat in (_tidy_beat(item) for item in data) if beat]
     return beats[:3]
 
 

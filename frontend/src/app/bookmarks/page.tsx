@@ -22,6 +22,7 @@ function fmtDate(iso?: string | null) {
 
 /** How much of the library the answer was actually grounded in. */
 function scopeLabel(bookmark: Bookmark) {
+  if (bookmark.scope === "write") return "written scene";
   const n = bookmark.calibre_ids?.length ?? 0;
   if (n === 0) return "whole library";
   if (n === 1) return "1 book";
@@ -29,6 +30,7 @@ function scopeLabel(bookmark: Bookmark) {
 }
 
 function chatHref(bookmark: Bookmark) {
+  if (bookmark.scope === "write") return "/write";
   const ids = bookmark.calibre_ids ?? [];
   return ids.length ? `/chat?ids=${ids.join(",")}` : "/chat";
 }
@@ -188,7 +190,7 @@ function BookmarkCard({
         </span>
         <span className="flex items-center gap-3">
           <Link href={chatHref(bookmark)} className="hover:text-yellow-400 transition-colors">
-            Open in chat
+            {bookmark.scope === "write" ? "Open in Write" : "Open in chat"}
           </Link>
           <button
             type="button"

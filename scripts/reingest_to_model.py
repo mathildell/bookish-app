@@ -17,9 +17,13 @@ is cut off, and bigger chunks put more story in front of the chat model per hit.
     .venv/bin/python scripts/reingest_to_model.py \\
         --model qwen3-embedding:8b --chunk-size 1000 --limit 3
 
-    # the real run, resumed by re-running the same command
+    # the real run, resumed by re-running the same command — a resumed run picks
+    # up at the first book missing from the target, so it can also move to a
+    # different Ollama box partway through
     .venv/bin/python scripts/reingest_to_model.py \\
         --model qwen3-embedding:8b --chunk-size 1000
+    .venv/bin/python scripts/reingest_to_model.py \\
+        --model qwen3-embedding:8b --chunk-size 1000 --host 192.168.2.43
 
 When it finishes, set both, then restart the backend:
     app.chroma_db_path     -> the --to-path directory
@@ -91,6 +95,8 @@ def main() -> int:
     ap.add_argument("--chunk-size", type=int, help="tokens per chunk (default: config ingestion.chunk_size)")
     ap.add_argument("--overlap", type=int, help="overlap percent (default: config ingestion.chunk_overlap)")
     ap.add_argument("--to-path", help="target ChromaDB dir (default: derived from model + chunk size)")
+    ap.add_argument("--host", help="Ollama host to embed on (default: config ollama.host)")
+    ap.add_argument("--port", type=int, help="Ollama port (default: config ollama.port)")
     ap.add_argument("--limit", type=int, help="only do N books (trial run)")
     args = ap.parse_args()
 
@@ -120,8 +126,8 @@ def main() -> int:
         calibre_db_path=str(_resolve(a["calibre_db_path"])),
         obsidian_vault_path=str(_resolve(a.get("obsidian_vault_path") or "data/reviews")),
         chroma_db_path=str(target_path),
-        ollama_host=o.get("host", "192.168.2.10"),
-        ollama_port=int(o.get("port", 11434)),
+        ollama_host=args.host or o.get("host", "192.168.2.10"),
+        ollama_port=args.port or int(o.get("port", 11434)),
         chat_model=o.get("chat_model", ""),
         extraction_model=o.get("extraction_model", ""),
         writing_model=o.get("writing_model", ""),

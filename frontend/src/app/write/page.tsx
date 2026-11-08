@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import ThreadEmpty from "@/components/ThreadEmpty";
+import Tooltip from "@/components/Tooltip";
 import {
+  createBookmark,
+  deleteBookmark,
   fetchSettingsSummary,
   regenerateSceneSuggestions,
   streamScene,
@@ -67,6 +70,11 @@ function WritePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  // Turn index -> saved bookmark id, mirroring the chat page's 🔖 affordance.
+  const [savedBookmarks, setSavedBookmarks] = useState<Record<number, number>>({});
+  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+
   const cast = useMemo(
     () => (characters ?? []).filter((c) => castIds.includes(c.id)),
     [characters, castIds]
@@ -80,6 +88,9 @@ function WritePageContent() {
   }, [characters, pickerQuery]);
 
   const genres = useMemo(() => Object.keys(settings?.genre_colors ?? {}), [settings]);
+  // A library with no configured genres has no chip to pick, so don't lock the
+  // whole page behind a selection that is impossible to make.
+  const needsGenre = genres.length > 0;
 
   // The URL write must stay out of the state updater: React may run an updater during
   // render, and rewriting history there fires a Router update mid-render.
@@ -97,7 +108,7 @@ function WritePageContent() {
   const send = useCallback(
     async (text: string) => {
       const message = text.trim();
-      if (!message || pending || castIds.length === 0) return;
+      if (!message || pending || castIds.length === 0 || (needsGenre && !genre)) return;
 
       const history = turns;
       setPending(true);
@@ -137,17 +148,79 @@ function WritePageContent() {
         setThinking(false);
       }
     },
-    [castIds, genre, pending, turns]
+    [castIds, genre, needsGenre, pending, turns]
   );
 
+  const toggleBookmark = useCallback(
+    async (index: number) => {
+      const existingId = savedBookmarks[index];
+      setSavingIndex(index);
+      try {
+        if (existingId) {
+          await deleteBookmark(existingId);
+          setSavedBookmarks((prev) => {
+            const next = { ...prev };
+            delete next[index];
+            return next;
+          });
+        } else {
+          const turn = turns[index];
+          if (turn?.role !== "assistant" || !turn.content) return;
+          const question =
+            index > 0 && turns[index - 1].role === "user" ? turns[index - 1].content : "";
+          const saved = await createBookmark({
+            question,
+            answer: turn.content,
+            citations: [],
+            scope: "write",
+            calibre_ids: [],
+            note: "",
+            color: "yellow",
+          });
+          setSavedBookmarks((prev) => ({ ...prev, [index]: saved.id }));
+        }
+      } catch {
+        // Leave the button usable; the bookmark wall is the source of truth if this fails.
+      } finally {
+        setSavingIndex(null);
+      }
+    },
+    [savedBookmarks, turns]
+  );
+
+  const renderSaveButton = (index: number) => {
+    const saved = savedBookmarks[index];
+    return (
+      <Tooltip label={saved ? "Saved — click to remove" : "Save this scene"} align="left">
+        <button
+          type="button"
+          onClick={() => toggleBookmark(index)}
+          disabled={savingIndex === index}
+          aria-label={saved ? "Remove bookmark" : "Bookmark this scene"}
+          className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] transition-colors disabled:opacity-50 ${
+            saved
+              ? "border-yellow-600/60 bg-yellow-500/10 text-yellow-300"
+              : "border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          🔖
+          {saved ? "Saved" : "Save"}
+        </button>
+      </Tooltip>
+    );
+  };
+
   const refreshSuggestions = useCallback(async () => {
-    if (castIds.length === 0 || turns.length === 0) return;
+    if (castIds.length === 0 || turns.length === 0 || regenerating) return;
+    setRegenerating(true);
     try {
       setSuggestions(await regenerateSceneSuggestions({ character_ids: castIds, history: turns }));
     } catch {
       setError("Couldn't regenerate suggestions");
+    } finally {
+      setRegenerating(false);
     }
-  }, [castIds, turns]);
+  }, [castIds, turns, regenerating]);
 
   // Only the last exchange is prose; earlier briefs stay as a quiet transcript.
   const earlierTurns = turns.slice(0, -1);
@@ -324,20 +397,76 @@ function WritePageContent() {
           )}
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
+            {/* Same message layout as the chat page: a right-aligned brief, then
+                the reply in a thin-bordered container. */}
             {earlierTurns.map((turn, i) =>
               turn.role === "user" ? (
-                <p key={i} className="text-xs italic text-zinc-500">
-                  {turn.content}
-                </p>
+                <div key={i} className="flex flex-col">
+                  <div className="self-end rounded-lg border border-yellow-600/40 bg-yellow-600/30 px-4 py-2 text-sm text-zinc-100">
+                    {turn.content}
+                  </div>
+                </div>
               ) : (
-                <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
-                  {turn.content}
-                </p>
+                <div key={i} className="flex flex-col">
+                  <div className="w-3/4 space-y-2 self-start">
+                    <div className="whitespace-pre-wrap rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm leading-relaxed text-zinc-300">
+                      {turn.content}
+                    </div>
+                    {renderSaveButton(i)}
+                  </div>
+                </div>
               )
             )}
 
             {scene && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{scene}</p>
+              <div className="flex flex-col">
+                <div className="w-3/4 space-y-2 self-start">
+                  <div className="whitespace-pre-wrap rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm leading-relaxed text-zinc-100">
+                    {scene}
+                  </div>
+                  {/* Only a finished scene is saveable — the last turn is still
+                      the user's brief while it streams. */}
+                  {/* Save and the next-route nudges share one wrapping row, so the
+                      pills sit under the scene they belong to rather than in a
+                      fixed strip at the bottom of the page. */}
+                  {!pending && turns[turns.length - 1]?.role === "assistant" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {renderSaveButton(turns.length - 1)}
+                      {suggestions.map((beat, bi) => (
+                        <button
+                          key={`${bi}-${beat}`}
+                          type="button"
+                          onClick={() => send(beat)}
+                          title={beat}
+                          className="flex min-h-7 max-w-full items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-left text-[11px] leading-snug text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-300"
+                        >
+                          {beat}
+                        </button>
+                      ))}
+                      <Tooltip
+                        label={regenerating ? "Generating suggestions…" : "Suggest three more routes"}
+                        align="left"
+                      >
+                        <button
+                          type="button"
+                          onClick={refreshSuggestions}
+                          disabled={regenerating}
+                          aria-busy={regenerating}
+                          aria-label={regenerating ? "Generating suggestions" : "Regenerate suggestions"}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800/60 text-[11px] text-zinc-400 transition-colors hover:text-zinc-200 disabled:cursor-wait disabled:text-yellow-400"
+                        >
+                          <span
+                            aria-hidden
+                            className={regenerating ? "inline-block animate-spin" : "inline-block"}
+                          >
+                            ↻
+                          </span>
+                        </button>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {pending && !scene && (
@@ -363,38 +492,6 @@ function WritePageContent() {
             {error && <p className="text-sm text-red-400">{error}</p>}
           </div>
 
-          {/* Shown after any scene — including one whose pills failed to parse, so
-              there is always a way to ask for them again. */}
-          {turns.length > 0 && !pending && (
-            <div className="space-y-2">
-              {suggestions.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {suggestions.map((beat) => (
-                    <button
-                      key={beat}
-                      type="button"
-                      onClick={() => send(beat)}
-                      className="max-w-full rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-left text-[11px] leading-snug text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-300"
-                    >
-                      {beat}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-zinc-600">
-                  No next-beat suggestions came back for that scene.
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={refreshSuggestions}
-                className="text-[11px] text-zinc-500 transition-colors hover:text-yellow-400"
-              >
-                ↻ {suggestions.length > 0 ? "Regenerate suggestions" : "Generate suggestions"}
-              </button>
-            </div>
-          )}
-
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -412,7 +509,8 @@ function WritePageContent() {
             />
             <button
               type="submit"
-              disabled={cast.length === 0 || pending || !draft.trim()}
+              disabled={cast.length === 0 || pending || !draft.trim() || (needsGenre && !genre)}
+              title={needsGenre && !genre ? "Pick a genre first" : undefined}
               className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-500 disabled:opacity-40"
             >
               Write

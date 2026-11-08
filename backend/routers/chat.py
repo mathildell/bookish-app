@@ -58,7 +58,9 @@ async def chat_stream(req: ChatRequest, request: Request):
         abandoned one.
         """
         try:
-            history = [{"role": h["role"], "content": h["content"]} for h in req.history]
+            # history arrives as ChatMessage models, not dicts — subscripting them
+            # raised "'ChatMessage' object is not subscriptable" on every follow-up.
+            history = [h.model_dump() for h in req.history]
             for item_type, payload in engine.chat_stream(
                 user_message=req.message,
                 history=history,

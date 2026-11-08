@@ -186,7 +186,7 @@ export default function ChatInterface({
         {messages.map((msg, i) => (
           <div key={i} className="flex flex-col">
             {msg.role === "user" ? (
-              <div className="self-end bg-yellow-600/30 text-zinc-100 rounded-lg px-4 py-2 text-sm">
+              <div className="self-end rounded-lg border border-yellow-600/40 bg-yellow-600/30 px-4 py-2 text-sm text-zinc-100">
                 {msg.content}
               </div>
             ) : (
@@ -218,7 +218,7 @@ export default function ChatInterface({
                 {msg.content && (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    className="w-full bg-zinc-800/60 rounded-lg p-4 text-sm text-zinc-300 prose prose-invert prose-sm max-w-none [&_p]:leading-[1.45] [&_li]:leading-[1.45]"
+                    className="w-full rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm text-zinc-300 prose prose-invert prose-sm max-w-none [&_p]:leading-[1.45] [&_li]:leading-[1.45]"
                   >
                     {msg.content}
                   </ReactMarkdown>
