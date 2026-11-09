@@ -299,7 +299,7 @@ function ObsidianTab({ book }: { book: BookDetail }) {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 mb-6">
       <textarea
         value={text}
         onChange={(e) => {

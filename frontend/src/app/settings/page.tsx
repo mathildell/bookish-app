@@ -68,13 +68,13 @@ function IgnoredBookInput({ onAdd }: { onAdd: (val: string) => void }) {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && handleAdd()}
         placeholder='Type a title (eg. "Metadata holder")…'
-        className="flex-1 bg-card border border-border rounded-lg px-4 py-2 text-xs text-foreground placeholder-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent"
+        className="flex-1 bg-card border border-border rounded-lg px-4 py-2 text-xs text-foreground placeholder-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
       />
       <button
         type="button"
         onClick={handleAdd}
         disabled={!input.trim()}
-        className="px-3 py-1 rounded-lg text-xs font-semibold bg-card hover:text-muted hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1 rounded-lg text-xs font-semibold bg-card hover:text-accent hover:bg-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         + Add
       </button>
@@ -84,8 +84,8 @@ function IgnoredBookInput({ onAdd }: { onAdd: (val: string) => void }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="space-y-4">
-      <h3 className="text-sm font-bold text-zinc-300 pb-2 border-b border-zinc-800">{title}</h3>
+    <section className="space-y-4 pt-4">
+      <h3 className="text-sm font-bold text-muted">{title}</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{children}</div>
     </section>
   );
@@ -101,9 +101,9 @@ function TextRow({ label, value, onChange, help }: {
         type={typeof value === "number" ? "number" : "text"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+        className="w-full bg-card shadow-sm shadow-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
       />
-      {help && <p className="text-[11px] text-zinc-600">{help}</p>}
+      {help && <p className="text-xs text-muted">{help}</p>}
     </div>
   );
 }
@@ -232,7 +232,7 @@ export default function SettingsPage() {
       {/* Ignored books */}
       <Section title="Ignored Books">
         <div className="md:col-span-2 space-y-3">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs">
             Titles matching these patterns will be hidden from the library grid. Partial, case-insensitive matches are supported.
           </p>
           {form.ignored_books.length > 0 && (
@@ -240,7 +240,7 @@ export default function SettingsPage() {
               {form.ignored_books.map((title, i) => (
                 <span
                   key={`${title}-${i}`}
-                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-zinc-800 text-zinc-300 border border-zinc-700"
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs bg-card shadow-sm shadow-border"
                 >
                   {title}
                   <button
@@ -250,7 +250,7 @@ export default function SettingsPage() {
                       next.splice(i, 1);
                       setForm((prev) => prev ? { ...prev, ignored_books: next } : null);
                     }}
-                    className="ml-1 text-zinc-500 hover:text-red-400 transition-colors select-none"
+                    className="ml-1 cursor-pointer hover:text-accent transition-colors select-none"
                   >
                     ✕
                   </button>
@@ -282,21 +282,21 @@ export default function SettingsPage() {
                 return (
                   <div
                     key={category}
-                    className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2"
+                    className="flex items-center gap-3 bg-card shadow-sm shadow-border rounded-lg px-3 py-2"
                   >
                     <input
                       type="color"
                       value={color ?? DEFAULT_GENRE_COLOR}
                       onChange={(e) => setGenreColor(category, e.target.value)}
                       aria-label={`${category} color`}
-                      className="h-8 w-10 shrink-0 cursor-pointer rounded border border-zinc-700 bg-transparent p-0.5"
+                      className="h-8 w-10 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5"
                     />
-                    <span className="flex-1 text-sm text-zinc-200">{category}</span>
+                    <span className="flex-1 text-sm">{category}</span>
                     {color ? (
                       <button
                         type="button"
                         onClick={() => clearGenreColor(category)}
-                        className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors"
+                        className="text-xs hover:text-accent text-muted cursor-pointer transition-colors"
                       >
                         Reset
                       </button>
