@@ -52,7 +52,35 @@ class CalibreReader:
         return os.path.dirname(self.db_path)
 
     def _exec(self, sql: str, params=()):
-        return self._conn.execute(sql, params)
+        try:
+            return self._conn.execute(sql, params)
+        except (sqlite3.OperationalError, sqlite3.ProgrammingError) as exc:
+            # metadata.db lives on an SMB share. When the mount reconnects, the old
+            # handle dies ("disk I/O error") and every read fails until the process
+            # restarts — which the homepage renders as an empty library. Reopen once
+            # and retry; a genuinely unreadable DB raises again from here.
+            if "disk i/o error" not in str(exc).lower() and not isinstance(
+                exc, sqlite3.ProgrammingError
+            ):
+                raise
+            logger.warning(
+                "Calibre handle lost (%s) — reconnecting to %s", exc, self.db_path
+            )
+            self._reconnect()
+            return self._conn.execute(sql, params)
+
+    def _reconnect(self) -> None:
+        """Reopen the read-only connection after the share dropped it."""
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = sqlite3.connect(
+            f"file:{self.db_path}?mode=ro",
+            uri=True,
+            check_same_thread=False,
+        )
+        self._conn.row_factory = sqlite3.Row
 
     def close(self):
         self._conn.close()

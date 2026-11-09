@@ -1,13 +1,21 @@
 @import "tailwindcss";
+@config "../../tailwind.config.ts";
 @plugin "@tailwindcss/typography";
 
-:root {
-  --background: #0a0a0f;
-  --foreground: #e2e8f0;
-  --muted: #64748b;
-  --accent: #ffd56b;
-  --border: #1e293b;
-  --card: #0f172a;
+:root, :host {
+  --background: #f3f1ef;
+  --foreground: #515152;
+  /*--foreground: #3e3e3d;*/
+  --muted: #939291;
+  --accent: #ecf150;
+  --border: #cfcdcc;
+  --card: #fafafa;
+}
+
+.prose {
+  --tw-prose-bold: #515152;
+  --tw-prose-invert-bold: #515152;
+  --tw-prose-invert-body: #515152;
 }
 
 body {
@@ -52,8 +60,7 @@ body {
 .rich-text blockquote {
   margin: 0 0 0.9rem;
   padding-left: 0.75rem;
-  border-left: 2px solid #3f3f46;
-  color: #a1a1aa;
+  border-left: 2px solid var(--border);
 }
 
 .rich-text > :last-child {

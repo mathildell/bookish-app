@@ -32,7 +32,7 @@ function withAlpha(hex: string, alpha: string) {
 
 // Shared look for the external-link chips (Goodreads, Calibre).
 const LINK_CHIP =
-  "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white";
+  "rounded-lg bg-card hover:bg-highlight hover:text-background px-3 py-1.5 text-xs font-medium transition-colors";
 
 export default function BookDetailPage() {
   const params = useParams();
@@ -44,12 +44,12 @@ export default function BookDetailPage() {
     queryFn: () => fetchBook(id),
   });
 
-  if (isLoading) return <div className="text-zinc-500 py-8">Loading…</div>;
+  if (isLoading) return <div className="py-8 text-muted">Loading…</div>;
   if (!book)
     return (
-      <div className="text-center py-12 text-zinc-400">
+      <div className="text-center py-12 text-muted">
         Book not found.{" "}
-        <a href="/" className="text-yellow-500 underline">
+        <a href="/" className="underline">
           Back to library
         </a>
       </div>
@@ -101,11 +101,11 @@ function BookDetailContent({ book }: { book: BookDetail }) {
     <div className="grid grid-cols-4 gap-8 pt-4">
       {/* Left: cover + metadata */}
       <div className="col-span-1 space-y-4">
-        <div className="rounded-xl overflow-hidden shadow-lg bg-zinc-900 w-full max-w-xs mx-auto">
+        <div className="rounded-xl overflow-hidden shadow-lg bg-card w-full max-w-xs mx-auto">
           {book.cover_uri ? (
             <img src={book.cover_uri} alt={book.title} className="w-full object-contain" />
           ) : (
-            <div className="flex items-center justify-center h-full text-zinc-600">No cover</div>
+            <div className="flex items-center justify-center h-full text-muted">No cover</div>
           )}
         </div>
 
@@ -113,10 +113,10 @@ function BookDetailContent({ book }: { book: BookDetail }) {
         <div className="space-y-2">
           <button
             onClick={book.indexed ? onUnindex : onIndex}
-            className={`w-full py-2 rounded-lg text-sm font-semibold border-none cursor-pointer ${
+            className={`w-full py-2 rounded-lg text-sm font-semibold text-white border-none cursor-pointer transition-colors ${
               book.indexed
-                ? "bg-green-600 hover:bg-green-500 text-white"
-                : "bg-orange-500 hover:bg-orange-400 text-white"
+                ? "bg-red-500 hover:bg-red-700"
+                : "bg-green-500 hover:bg-green-700"
             }`}
           >
             {book.indexed ? "Remove from index" : "Index this book"}
@@ -126,7 +126,7 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           {book.indexed && (
             <Link
               href={`/chat?ids=${book.id}`}
-              className="block w-full py-2 rounded-lg text-center text-sm font-semibold bg-yellow-600 hover:bg-yellow-500 text-zinc-900 transition-colors"
+              className="block w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
             >
               💬 Chat with this book
             </Link>
@@ -136,25 +136,25 @@ function BookDetailContent({ book }: { book: BookDetail }) {
         {/* Metadata */}
         <dl className="space-y-2 text-sm">
           {book.authors.length > 0 && (
-            <div><dt className="text-zinc-500">Authors</dt><dd>{book.authors.join(", ")}</dd></div>
+            <div><dt className="text-muted">Authors</dt><dd>{book.authors.join(", ")}</dd></div>
           )}
           {book.series_name && (
-            <div><dt className="text-zinc-500">Series</dt><dd>{book.series_name}{book.series_index != null ? ` #${book.series_index}` : ""}</dd></div>
+            <div><dt className="text-muted">Series</dt><dd>{book.series_name}{book.series_index != null ? ` #${book.series_index}` : ""}</dd></div>
           )}
           {book.publisher && (
-            <div><dt className="text-zinc-500">Publisher</dt><dd>{book.publisher}</dd></div>
+            <div><dt className="text-muted">Publisher</dt><dd>{book.publisher}</dd></div>
           )}
-          <div><dt className="text-zinc-500">My Rating</dt><dd>{renderRating(book.goodreads_rating)}</dd></div>
+          <div><dt className="text-muted">My Rating</dt><dd>{renderRating(book.goodreads_rating)}</dd></div>
           {book.page_count != null && (
-            <div><dt className="text-zinc-500">Pages</dt><dd>{book.page_count}</dd></div>
+            <div><dt className="text-muted">Pages</dt><dd>{book.page_count}</dd></div>
           )}
           {book.word_count != null && (
-            <div><dt className="text-zinc-500">Words</dt><dd>{book.word_count.toLocaleString()}</dd></div>
+            <div><dt className="text-muted">Words</dt><dd>{book.word_count.toLocaleString()}</dd></div>
           )}
-          <div><dt className="text-zinc-500">Added</dt><dd>{fmtDate(book.date_added)}</dd></div>
-          <div><dt className="text-zinc-500">Read</dt><dd>{fmtDate(book.date_read)}</dd></div>
+          <div><dt className="text-muted">Added</dt><dd>{fmtDate(book.date_added)}</dd></div>
+          <div><dt className="text-muted">Read</dt><dd>{fmtDate(book.date_read)}</dd></div>
           {isArc && (
-            <div><dt className="text-zinc-500">NetGalley deadline</dt><dd>{fmtDate(book.netgalley_deadline)}</dd></div>
+            <div><dt className="text-muted">NetGalley deadline</dt><dd>{fmtDate(book.netgalley_deadline)}</dd></div>
           )}
         </dl>
 
@@ -173,7 +173,7 @@ function BookDetailContent({ book }: { book: BookDetail }) {
                 <span
                   key={`genre-${genre}`}
                   className={`rounded-full border px-2 py-0.5 text-xs ${
-                    color ? "" : "bg-yellow-500/10 text-yellow-300 border-transparent"
+                    color ? "" : "bg-card border-transparent"
                   }`}
                   style={
                     color
@@ -192,9 +192,9 @@ function BookDetailContent({ book }: { book: BookDetail }) {
             {tags.map((tag) => (
               <span
                 key={`tag-${tag}`}
-                className="bg-zinc-800 text-zinc-200 rounded-full px-2 py-0.5 text-xs"
+                className="bg-card rounded-full px-2 py-0.5 text-xs"
               >
-                {tag}
+                <span className="text-muted">#</span> {tag}
               </span>
             ))}
           </div>
@@ -230,31 +230,31 @@ function BookDetailContent({ book }: { book: BookDetail }) {
 
         {/* Blurb */}
         <section className="space-y-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Blurb</h2>
-          <div className="w-full max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Blurb</h2>
+          <div className="w-full text-foreground max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-card shadow-sm shadow-border rounded-lg px-4 py-3 text-sm prose prose-sm rich-text">
             {book.blurb ? (
               <div dangerouslySetInnerHTML={{ __html: book.blurb }} />
             ) : (
-              <div className="text-stone-500 italic py-6 text-center">No blurb for this book.</div>
+              <div className="text-muted italic py-6 text-center">No blurb for this book.</div>
             )}
           </div>
         </section>
 
         {/* Calibre notes */}
         <section className="space-y-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Calibre notes</h2>
-          <div className="w-full max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-stone-900 border border-stone-700 rounded-lg px-4 py-3 text-sm text-stone-200 prose prose-invert prose-sm rich-text">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Calibre notes</h2>
+          <div className="w-full max-w-none min-h-[120px] max-h-[420px] overflow-auto bg-card shadow-sm shadow-border rounded-lg px-4 py-3 text-sm prose prose-sm rich-text">
             {book.personal_notes ? (
               <div dangerouslySetInnerHTML={{ __html: book.personal_notes }} />
             ) : (
-              <div className="text-stone-500 italic py-6 text-center">No Calibre notes for this book.</div>
+              <div className="text-muted italic py-6 text-center">No Calibre notes for this book.</div>
             )}
           </div>
         </section>
 
         {/* Obsidian review (markdown) */}
         <section className="space-y-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Obsidian review</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Obsidian review</h2>
           <ObsidianTab book={book} />
         </section>
       </div>
@@ -307,20 +307,20 @@ function ObsidianTab({ book }: { book: BookDetail }) {
           setStatus(null);
         }}
         placeholder="Write your review in markdown…"
-        className="w-full h-[500px] bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-sm font-mono text-zinc-100 resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+        className="w-full h-[500px] bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-sm font-mono text-zinc-100 resize-none focus:outline-none focus:ring-2 focus:ring-accent"
       />
       <div className="flex items-center gap-3">
         <button
           onClick={onSave}
           disabled={saving}
-          className="bg-yellow-600 hover:bg-yellow-500 text-zinc-900 font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          className="bg-card transition-colors hover:text-background hover:bg-highlight font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save"}
         </button>
         {status && (
           <span
             role="status"
-            className={`text-sm ${status.ok ? "text-green-400" : "text-red-400"}`}
+            className={`text-sm ${status.ok ? "text-green-700" : "text-red-700"}`}
           >
             {status.message}
           </span>

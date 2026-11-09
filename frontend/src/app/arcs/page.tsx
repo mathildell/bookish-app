@@ -42,7 +42,7 @@ export default function ArcTrackerPage() {
     queryFn: fetchArcs,
   });
 
-  if (isLoading) return <div className="text-zinc-500 py-8">Loading…</div>;
+  if (isLoading) return <div className="text-foreground py-8">Loading…</div>;
 
   // Sort by the actual NetGalley date; ARCs without a deadline go last
   const sorted = [...(arcs || [])].sort((a: ArcBook, b: ArcBook) => {
@@ -76,7 +76,7 @@ export default function ArcTrackerPage() {
   return (
     <div className="space-y-6 pt-6">
       <h1 className="text-2xl font-bold tracking-tight">ARC Tracker</h1>
-      <p className="text-sm text-zinc-500 -mt-4">
+      <p className="text-sm -mt-4">
         Track Advance Reader Copies: deadlines, review status, and quick-glance metrics.
       </p>
 
@@ -87,8 +87,8 @@ export default function ArcTrackerPage() {
           { label: "Overdue", value: overdueCount },
           { label: "Unreviewed", value: unreviewed },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 text-center">
-            <dt className="text-xs uppercase tracking-wider text-zinc-500 mb-1">{label}</dt>
+          <div key={label} className="bg-card shadow-sm shadow-border rounded-xl p-4 text-center">
+            <dt className="text-xs uppercase tracking-wider mb-1">{label}</dt>
             <dd className="text-2xl font-bold">{value}</dd>
           </div>
         ))}
@@ -96,13 +96,13 @@ export default function ArcTrackerPage() {
 
       {/* Sort buttons */}
       <div className="flex gap-3 items-center">
-        <label className="text-xs font-semibold uppercase text-zinc-500 mr-1">Sort:</label>
+        <label className="text-xs font-semibold uppercase text-muted mr-1">Sort:</label>
         {sortModes.map((m) => (
           <button
             key={m}
             onClick={() => setSortMode(m)}
             className={`px-3 py-1 rounded-full text-xs transition-colors ${
-              sortMode === m ? "bg-yellow-600 text-zinc-900 font-semibold" : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              sortMode === m ? "bg-highlight text-accent font-semibold" : "bg-card hover:bg-highlight hover:text-background"
             }`}
           >
             {m}
@@ -112,7 +112,7 @@ export default function ArcTrackerPage() {
 
       {/* ARC list */}
       {!sorted.length ? (
-        <div className="text-zinc-500 text-center py-12">No ARCs in your library.</div>
+        <div className="text-center py-12">No ARCs in your library.</div>
       ) : (
         <div className="space-y-3">
           {sorted.map((arc: ArcBook) => {
@@ -121,12 +121,12 @@ export default function ArcTrackerPage() {
               <Link
                 key={arc.calibre_id}
                 href={`/book/${arc.calibre_id}`}
-                className={`flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 rounded-lg px-4 py-3 hover:border-zinc-600 transition-colors ${
+                className={`flex items-center gap-4 bg-card shadow-sm shadow-border hover:shadow-md rounded-lg px-4 py-3 transition-colors ${
                   doneAndLate ? "opacity-50" : ""
                 }`}
               >
                 {/* Cover */}
-                <div className="w-12 flex-shrink-0 aspect-[3/4] rounded overflow-hidden bg-zinc-800">
+                <div className="w-12 flex-shrink-0 aspect-[3/4] rounded overflow-hidden bg-background">
                   {arc.cover_uri ? (
                     <img src={arc.cover_uri} alt="" className="w-full h-full object-cover" />
                   ) : null}
@@ -140,7 +140,7 @@ export default function ArcTrackerPage() {
                     </span>
                     {arc.title}
                   </p>
-                  <div className="flex gap-3 text-xs text-zinc-500 mt-1">
+                  <div className="flex gap-3 text-xs mt-1">
                     {arc.netgalley_deadline && (
                       <span>Due: {fmtDate(arc.netgalley_deadline)}</span>
                     )}
@@ -151,7 +151,7 @@ export default function ArcTrackerPage() {
 
                 {/* Overdue badge */}
                 {arc.overdue && arc.days_past_due > 0 && (
-                  <span className="text-xs text-red-400 font-semibold flex-shrink-0">
+                  <span className="text-xs text-orange-400 font-semibold flex-shrink-0">
                     {arc.days_past_due}d overdue
                   </span>
                 )}

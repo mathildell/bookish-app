@@ -68,13 +68,13 @@ function IgnoredBookInput({ onAdd }: { onAdd: (val: string) => void }) {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && handleAdd()}
         placeholder='Type a title (eg. "Metadata holder")…'
-        className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+        className="flex-1 bg-card border border-border rounded-lg px-4 py-2 text-xs text-foreground placeholder-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent"
       />
       <button
         type="button"
         onClick={handleAdd}
         disabled={!input.trim()}
-        className="px-3 py-1 rounded-lg text-xs font-semibold bg-zinc-700 text-zinc-300 hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1 rounded-lg text-xs font-semibold bg-card hover:text-muted hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         + Add
       </button>

@@ -13,18 +13,18 @@ export const metadata: Metadata = {
 
 function Nav() {
   const items = [
-    { label: "Chat", href: "/chat" },
-    { label: "Write", href: "/write" },
+    { label: "Library Chat", href: "/chat" },
     { label: "Characters", href: "/characters" },
-    { label: "ARC Tracker", href: "/arcs" },
+    { label: "Write", href: "/write" },
     { label: "Bookmarks", href: "/bookmarks" },
+    { label: "ARC Tracker", href: "/arcs" },
     { label: "Settings", href: "/settings" },
   ];
 
   return (
-    <nav className="sticky top-0 z-[60] border-b border-zinc-800 bg-zinc-950/90 pt-2 backdrop-blur-md supports-[backdrop-filter]:bg-zinc-950/80">
+    <nav className="sticky top-0 z-[60] border-b border-border bg-background/90 pt-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
       <div className="max-w-7xl mx-auto px-4 flex h-14 items-center gap-6">
-        <Link href="/" className="text-xl font-bold tracking-tight text-yellow-400 mr-4 select-none">
+        <Link href="/" className="text-accent font-bold tracking-tight mr-4 select-none">
           BookishApp
         </Link>
         {items.map((it) => (
@@ -47,7 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <Providers>
           <Nav />
-          <div className="bg-[#0a0a0f]" style={{ height: "calc(100vh_-_3.5rem)" }}>
+          <div className="bg-background" style={{ height: "calc(100vh_-_3.5rem)" }}>
             <main className="max-w-7xl mx-auto h-full px-4 pb-6">{children}</main>
           </div>
         </Providers>

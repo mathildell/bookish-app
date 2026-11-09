@@ -8,21 +8,23 @@ export default {
   content,
   theme: {
     extend: {
-      background: "#c6c8c8",
-      foreground: "#000000",
-      muted:      "#c8c819",
-      accent:     "#c81c16",
-      border:     "#c816bc",
-      card:       "#1839c8"
-/*
-  --background: #0a0a0f;
-  --foreground: #e2e8f0;
-  --muted: #64748b;
-  --accent: #ffd56b;
-  --border: #1e293b;
-  --card: #0f172a;
-*/
+      colors: {
+        background: "#f3f1ef",
+        foreground: "#515152",
+        border:     "#cfcdcc",
+        muted:      "#939291",
+        accent:     "#ecf150",
+        card:       "#fafafa",
+        highlight:  "#000000"
+      }
     }
   },
   plugins: [],
 };
+
+//  --background: #0a0a0f;
+//  --foreground: #e2e8f0;
+//  --muted: #64748b;
+//  --accent: #ffd56b;
+//  --border: #1e293b;
+//  --card: #0f172a;

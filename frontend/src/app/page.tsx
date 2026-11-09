@@ -252,7 +252,7 @@ export default function LibraryPage() {
   const stickyOffset = NAV_HEIGHT + headerHeight;
   return (
     <div className="relative">
-      <header ref={headerRef} className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-[#0a0a0f] pr-6">
+      <header ref={headerRef} className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-background pr-6">
         <div className="flex items-center gap-4 flex-wrap pt-5 pb-3 mb-2 min-w-0">
           <SearchBar
             value={filters.query}

@@ -111,7 +111,7 @@ export default function CharactersPage() {
     <div className="relative">
       <header
         ref={headerRef}
-        className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-[#0a0a0f] pr-6"
+        className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-background pr-6"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-4 pb-3 pt-5 mb-2">
           <SearchBar
