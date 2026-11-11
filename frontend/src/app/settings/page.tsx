@@ -36,6 +36,14 @@ async function fetchSettings(): Promise<SettingsData> {
   return res.json();
 }
 
+type OllamaModelList = { models: string[]; host: string; error: string | null };
+
+async function fetchModels(): Promise<OllamaModelList> {
+  const res = await fetch("/api/models");
+  if (!res.ok) throw new Error("Failed to load Ollama models");
+  return res.json();
+}
+
 async function updateSettings(data: Partial<SettingsData>) {
   // genre_categories is derived from the library, never persisted
   const payload = { ...data };
@@ -108,11 +116,65 @@ function TextRow({ label, value, onChange, help }: {
   );
 }
 
+function SelectRow({
+  label,
+  value,
+  onChange,
+  options,
+  help,
+  emptyLabel,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  help?: string;
+  /** Label for an empty value. Omit it when the field has no empty state. */
+  emptyLabel?: string;
+}) {
+  // A model that was renamed or removed still has to be visible, or saving the
+  // form would silently swap it for whichever option happens to be first.
+  const currentIsListed = value === "" || options.includes(value);
+
+  return (
+    <div className="space-y-1">
+      <label className="block text-xs uppercase font-semibold text-zinc-500">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-card shadow-sm shadow-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+      >
+        {emptyLabel !== undefined && <option value="">{emptyLabel}</option>}
+        {!currentIsListed && <option value={value}>{value} (not installed)</option>}
+        {options.map((model) => (
+          <option key={model} value={model}>
+            {model}
+          </option>
+        ))}
+      </select>
+      {help && <p className="text-xs text-muted">{help}</p>}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
+
+  // Model choices come from the Ollama host in the saved settings, so a host
+  // change shows up once the form is saved and the page reloads.
+  const modelsQuery = useQuery({
+    queryKey: ["ollama-models"],
+    queryFn: fetchModels,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const models = modelsQuery.data?.models ?? [];
+  const modelsNote = modelsQuery.isError
+    ? "Could not load the model list from Ollama."
+    : modelsQuery.data?.error ?? null;
 
   const [form, setForm] = useState<SettingsData | null>(null);
   const initialSync = useRef(false);
@@ -183,8 +245,9 @@ export default function SettingsPage() {
         <TextRow label="Port" value={form.ollama_port}
           onChange={(v) => handleChange("ollama_port", v)}
           help="Default 11434" />
-        <TextRow label="Chat Model" value={form.chat_model} 
+        <SelectRow label="Chat Model" value={form.chat_model}
           onChange={(v) => handleChange("chat_model", v)}
+          options={models}
           help="Model used for conversation responses" />
         <TextRow label="Context Window" value={form.chat_num_ctx}
           onChange={(v) => handleChange("chat_num_ctx", v)}
@@ -192,18 +255,28 @@ export default function SettingsPage() {
         <TextRow label="Max Output Tokens" value={form.chat_num_predict}
           onChange={(v) => handleChange("chat_num_predict", v)}
           help="num_predict per answer, reasoning included. Caps a model that would otherwise think until it starves the host." />
-        <TextRow label="Extraction Model" value={form.extraction_model ?? ""}
+        <SelectRow label="Extraction Model" value={form.extraction_model ?? ""}
           onChange={(v) => handleChange("extraction_model", v)}
+          options={models}
+          emptyLabel="Use the Chat Model"
           help="Model used to discover and profile characters. Falls back to the Chat Model when empty." />
-        <TextRow label="Embedding Model" value={form.embedding_model} 
+        <SelectRow label="Embedding Model" value={form.embedding_model}
           onChange={(v) => handleChange("embedding_model", v)}
+          options={models}
           help="Model used for text vectorization during indexing" />
+        {(modelsNote || models.length === 0) && (
+          <p className={`md:col-span-2 text-xs ${modelsNote ? "text-red-500" : "text-muted"}`}>
+            {modelsNote ?? "No models found on the Ollama host."}
+          </p>
+        )}
       </Section>
 
       {/* Creative writing tuning */}
       <Section title="Creative Writing">
-        <TextRow label="Writing Model" value={form.writing_model ?? ""}
+        <SelectRow label="Writing Model" value={form.writing_model ?? ""}
           onChange={(v) => handleChange("writing_model", v)}
+          options={models}
+          emptyLabel="Use the Chat Model"
           help="Model used for scenes on the Write page. Leave empty to reuse the Chat Model — a reasoning model will spend the whole budget thinking and return no prose." />
         <TextRow label="Temperature" value={form.writing_temperature}
           onChange={(v) => handleChange("writing_temperature", v)}
@@ -312,14 +385,14 @@ export default function SettingsPage() {
       </Section>
 
       {/* Save button */}
-      <div className="pt-4 flex items-center gap-4">
+      <div className="pt-4 flex items-center gap-4 mb-8">
         <button
           onClick={() => updateMut.mutate(form)}
           disabled={!hasChanges || updateMut.isPending}
-          className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+          className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-border ${
             hasChanges 
-              ? "bg-yellow-600 hover:bg-yellow-500 text-zinc-900" 
-              : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+              ? "cursor-pointer bg-card hover:bg-highlight hover:text-accent" 
+              : "cursor-not-allowed bg-muted/20 text-muted"
           }`}
         >
           {updateMut.isPending ? "Saving…" : updateMut.isSuccess ? "Saved ✓" : hasChanges ? "Save Changes" : "No changes"}

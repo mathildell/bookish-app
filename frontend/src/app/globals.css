@@ -3,7 +3,7 @@
 @plugin "@tailwindcss/typography";
 
 :root, :host {
-  --background: #f3f1ef;
+  --background: #f2f0ee;
   --foreground: #515152;
   /*--foreground: #3e3e3d;*/
   --muted: #939291;

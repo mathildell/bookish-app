@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useState, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { CancelIcon, EditIcon, TrashIcon, ValidateIcon } from "@/components/icons";
 
 /** Row-level icon button, shared so both sidebars' shortcuts look identical. */
 export const LIST_ICON =
-  "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-zinc-700/70 bg-zinc-900/60 text-[11px] leading-none transition-colors";
+  "flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-xs leading-none transition-colors bg-background hover:bg-highlight hover:text-accent";
 
 export type ListSectionItem = { id: number; name: string; ids: number[] };
 
@@ -25,6 +26,9 @@ export type ListSectionProps = {
   /** Optional per-row shortcut rendered before rename/delete (💬, ✨). */
   shortcut?: (list: ListSectionItem) => ReactNode;
 };
+
+/** Payload for the inline create/rename form: the list id, or null when creating. */
+type UpsertVars = { id: number | null; name: string };
 
 /**
  * One saved-list section for both sidebars. The library feeds it books, the
@@ -56,8 +60,9 @@ export default function ListSection({
     [queryClient, queryKey]
   );
 
+  // Create and rename share one payload shape, so the same inline form can drive both.
   const createMut = useMutation({
-    mutationFn: onCreate,
+    mutationFn: ({ name }: UpsertVars) => onCreate(name),
     onSuccess: () => {
       setCreating(false);
       setCreateName("");
@@ -66,7 +71,10 @@ export default function ListSection({
   });
 
   const renameMut = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => onRename(id, name),
+    mutationFn: ({ id, name }: UpsertVars) => {
+      // Renaming only starts from an existing row, so the id is always present.
+      return id === null ? Promise.reject(new Error("Rename needs a list id")) : onRename(id, name);
+    },
     onSuccess: () => {
       setEditingId(null);
       refresh();
@@ -84,14 +92,117 @@ export default function ListSection({
 
   const activeList = lists?.find((l) => l.id === activeListId);
 
+  const ListItem = ({ list }: { list: ListSectionItem }) => (
+    <div
+      key={list.id}
+      className="bg-white my-2 mx-0.5 rounded-md"
+    >
+      <div className={`flex items-center justify-between rounded-md px-2 py-1.5 gap-1 transition-colors hover:ring-2 hover:ring-accent ${
+        activeListId === list.id
+          ? "bg-accent/20 border border-accent"
+          : "bg-card shadow-sm shadow-border"
+      }`}> 
+        <button
+          type="button"
+          onClick={() => onPick(activeListId === list.id ? null : list.id)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
+        >
+          <div className="min-w-0">
+            <p
+              className={`truncate text-xs leading-tight ${
+                activeListId === list.id ? "font-bold" : ""
+              }`}
+            >
+              {list.name}
+            </p>
+            <p className="text-xs text-muted">
+              {list.ids.length} {unit}
+              {list.ids.length === 1 ? "" : "s"}
+            </p>
+          </div>
+        </button>
+
+        <span className="flex gap-1">
+          {shortcut?.(list)}
+          <button
+            type="button"
+            title="Rename"
+            onClick={() => {
+              setEditingId(list.id);
+              setEditName(list.name);
+            }}
+            className={LIST_ICON}
+          >
+            <EditIcon />
+          </button>
+          <button
+            type="button"
+            title="Delete"
+            onClick={() => deleteMut.mutate(list.id)}
+            className={`${LIST_ICON} hover:bg-red-500`}
+          >
+            <TrashIcon />
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+
+  const UpsertForm = ({
+    name,
+    setfunc,
+    setbool,
+    mut,
+    list,
+  }: {
+    name: string;
+    setfunc: (value: string) => void;
+    /** Dismisses the form (Escape or Cancel). */
+    setbool: () => void;
+    mut: UseMutationResult<unknown, Error, UpsertVars, unknown>;
+    /** The list being renamed, or null while creating a new one. */
+    list: ListSectionItem | null;
+  }) => (
+    <div className="mt-3 flex items-center gap-1">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setfunc(e.target.value)}
+        onKeyDown={(e) => {
+          // if (e.key === "Enter" && name.trim()) mut.mutate(name.trim());
+          if (e.key === "Enter" && name.trim()) mut.mutate({ id: list?.id ?? null, name: name.trim() });
+          else if (e.key === "Escape") setbool();
+        }}
+        placeholder="List name…"
+        className="flex-1 min-w-0 rounded-md px-2 py-3 mx-0.5 shadow-sm shadow-border bg-card text-xs placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
+      />
+      <button
+        type="button"
+        title="Confirm"
+        onClick={() => name.trim() && mut.mutate({ id: list?.id ?? null, name: name.trim() })}
+        className={`${LIST_ICON} bg-card text-muted -mr-0.5`}
+      >
+        <ValidateIcon />
+      </button>
+      <button
+        type="button"
+        title="Cancel"
+        onClick={() => setbool()}
+        className={`${LIST_ICON} bg-card text-muted`}
+      >
+        <CancelIcon />
+      </button>
+    </div>
+  );
+  
   return (
     <section>
-      <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">{title}</label>
+      <label className="text-xs font-semibold uppercase text-muted mb-1 block">{title}</label>
 
-      {isLoading && <p className="px-2 text-[11px] text-zinc-600">Loading lists…</p>}
+      {isLoading && <p className="px-2 text-xs text-muted">Loading lists…</p>}
 
       {!isLoading && (!lists || lists.length === 0) && (
-        <p className="px-2 text-[11px] leading-relaxed text-zinc-600">
+        <p className="px-2 text-xs text-muted leading-relaxed">
           No lists yet. Click below to create one.
         </p>
       )}
@@ -99,138 +210,42 @@ export default function ListSection({
       <div className="space-y-1">
         {(lists ?? []).map((list) =>
           editingId === list.id ? (
-            <div key={list.id} className="flex items-center gap-1">
-              <input
-                autoFocus
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && editName.trim())
-                    renameMut.mutate({ id: list.id, name: editName.trim() });
-                  else if (e.key === "Escape") setEditingId(null);
-                }}
-                className="flex-1 min-w-0 rounded border border-yellow-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+            <UpsertForm
+                key={list.id}  
+                name={editName}
+                setfunc={setEditName}
+                setbool={() => setEditingId(null)}
+                mut={renameMut}
+                list={list}
               />
-              <button
-                type="button"
-                title="Save name"
-                onClick={() => editName.trim() && renameMut.mutate({ id: list.id, name: editName.trim() })}
-                className={`${LIST_ICON} text-green-400 hover:border-green-800/70 hover:text-green-300`}
-              >
-                ✓
-              </button>
-              <button
-                type="button"
-                title="Cancel"
-                onClick={() => setEditingId(null)}
-                className={`${LIST_ICON} text-zinc-500 hover:border-zinc-600 hover:text-zinc-200`}
-              >
-                ✕
-              </button>
-            </div>
           ) : (
-            <div
-              key={list.id}
-              className={`flex items-center justify-between rounded-md px-2 py-1.5 gap-1 transition-colors ${
-                activeListId === list.id
-                  ? "bg-yellow-900/30 border border-yellow-800/40"
-                  : "hover:bg-zinc-800/60 border border-transparent"
-              }`}
-            >
-              {/* Click body → toggle as filter. The chevron marks the active list. */}
-              <button
-                type="button"
-                onClick={() => onPick(activeListId === list.id ? null : list.id)}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              >
-                <span
-                  className={`flex-shrink-0 text-[9px] leading-none ${
-                    activeListId === list.id ? "text-yellow-400" : "opacity-0"
-                  }`}
-                >
-                  ▶
-                </span>
-                <div className="min-w-0">
-                  <p
-                    className={`truncate text-xs leading-tight ${
-                      activeListId === list.id ? "text-yellow-300 font-semibold" : "text-zinc-200"
-                    }`}
-                  >
-                    {list.name}
-                  </p>
-                  <p className="text-[10px] text-zinc-500">
-                    {list.ids.length} {unit}
-                    {list.ids.length === 1 ? "" : "s"}
-                  </p>
-                </div>
-              </button>
-
-              <span className="flex gap-1">
-                {shortcut?.(list)}
-                <button
-                  type="button"
-                  title="Rename"
-                  onClick={() => {
-                    setEditingId(list.id);
-                    setEditName(list.name);
-                  }}
-                  className={`${LIST_ICON} text-zinc-400 hover:border-zinc-600 hover:text-yellow-400`}
-                >
-                  ✏️
-                </button>
-                <button
-                  type="button"
-                  title="Delete"
-                  onClick={() => deleteMut.mutate(list.id)}
-                  className={`${LIST_ICON} text-zinc-400 hover:border-red-800/70 hover:text-red-400`}
-                >
-                  🗑
-                </button>
-              </span>
-            </div>
+            <ListItem
+                key={list.id}
+                list={list} 
+              />
           )
         )}
       </div>
 
       {activeList && (
-        <div className="mt-2 rounded-lg border border-yellow-800/50 bg-yellow-900/10 px-3 py-2">
-          <p className="text-[11px] text-yellow-300/80 leading-relaxed">
-            Showing <strong>{activeList.ids.length}</strong> {unit}
-            {activeList.ids.length === 1 ? "" : "s"} in <strong>&quot;{activeList.name}&quot;</strong>
-          </p>
+        <div className="bg-white mt-2 rounded-lg">
+          <div className="px-3 py-2 rounded-lg bg-accent/20 border border-accent">
+            <p className="text-xs leading-relaxed">
+              Showing <strong>{activeList.ids.length}</strong> {unit}
+              {activeList.ids.length === 1 ? "" : "s"} in <strong>&quot;{activeList.name}&quot;</strong>
+            </p>
+          </div>
         </div>
       )}
 
       {creating ? (
-        <div className="mt-2 flex items-center gap-1">
-          <input
-            autoFocus
-            value={createName}
-            onChange={(e) => setCreateName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && createName.trim()) createMut.mutate(createName.trim());
-              else if (e.key === "Escape") setCreating(false);
-            }}
-            placeholder="List name…"
-            className="flex-1 min-w-0 rounded border border-yellow-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+        <UpsertForm 
+            name={createName}
+            setfunc={setCreateName}
+            setbool={() => setCreating(false)}
+            mut={createMut}
+            list={null}
           />
-          <button
-            type="button"
-            title="Create"
-            onClick={() => createName.trim() && createMut.mutate(createName.trim())}
-            className={`${LIST_ICON} text-green-400 hover:border-green-800/70 hover:text-green-300`}
-          >
-            ✓
-          </button>
-          <button
-            type="button"
-            title="Cancel"
-            onClick={() => setCreating(false)}
-            className={`${LIST_ICON} text-zinc-500 hover:border-zinc-600 hover:text-zinc-200`}
-          >
-            ✕
-          </button>
-        </div>
       ) : (
         <button
           type="button"
@@ -239,7 +254,7 @@ export default function ListSection({
             setCreating(true);
             setCreateName("");
           }}
-          className="mt-2 text-[11px] text-yellow-500/80 hover:text-yellow-400 transition-colors bg-none border-none cursor-pointer p-0"
+          className="mt-2 text-xs text-muted hover:text-highlight transition-colors bg-none border-none cursor-pointer p-0"
         >
           + New list
         </button>

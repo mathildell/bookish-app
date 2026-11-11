@@ -15,11 +15,18 @@ export default function Tooltip({
   label,
   children,
   align = "right",
+  placement = "bottom",
 }: {
   label: string;
   children: ReactNode;
   /** Side used before the first hover measures the real position. */
   align?: "left" | "right";
+  /**
+   * Where the label opens. `bottom` measures the control and slips sideways near an
+   * edge (the wrapping toolbar); `left` always opens beside it, vertically centred,
+   * for controls in a vertical rail along the right edge.
+   */
+  placement?: "bottom" | "left";
 }) {
   const [side, setSide] = useState<"left" | "right">(align);
 
@@ -37,8 +44,10 @@ export default function Tooltip({
       {children}
       <span
         aria-hidden="true"
-        className={`pointer-events-none absolute top-full z-[60] mt-1.5 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-medium text-zinc-100 opacity-0 shadow-lg shadow-black/40 transition-opacity duration-75 group-hover/tt:opacity-100 group-hover/tt:delay-[300ms] group-focus-within/tt:opacity-100 ${
-          side === "right" ? "right-0" : "left-0"
+        className={`pointer-events-none absolute z-[70] whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-medium text-zinc-100 opacity-0 shadow-lg shadow-black/40 transition-opacity duration-75 group-hover/tt:opacity-100 group-hover/tt:delay-[300ms] group-focus-within/tt:opacity-100 ${
+          placement === "left"
+            ? "right-full top-1/2 mr-2 -translate-y-1/2"
+            : `top-full mt-1.5 ${side === "right" ? "right-0" : "left-0"}`
         }`}
       >
         {label}

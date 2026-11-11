@@ -1,21 +1,62 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import BookGrid from "@/components/BookGrid";
 import SearchBar from "@/components/SearchBar";
+import NavSearchPortal from "@/components/NavSearchPortal";
 import FilterSidebar from "@/components/FilterSidebar";
 import Tooltip from "@/components/Tooltip";
 import type { Filters } from "@/components/FilterSidebar";
 import Link from "next/link";
 import { batchIndexBooks, createList, setListBooks, unindexBook, useBookLists, type BatchIndexEvent } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ChatIcon, CharacterIcon, IndexAdd, IndexRemove, ListAdd, ListRemove, FolderAdd, ClearIcon } from "@/components/icons";
 
 // Height of the sticky nav (h-14 + pt-2 + 1px border) — the header sticks just below it.
 const NAV_HEIGHT = 65;
 
 // Icon-only buttons in the selection toolbar; each button's tooltip carries its wording.
 const ACTION_BTN =
-  "flex h-9 w-9 items-center justify-center rounded-lg text-base leading-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+  "flex h-12 w-12 items-center justify-center bg-card shadow-sm shadow-border hover:shadow-md rounded-full text-base leading-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+
+/**
+ * One rail entry: a link while the action applies, otherwise the same chip as a
+ * disabled button whose tooltip says what the selection is missing.
+ */
+function RailAction({
+  href,
+  label,
+  hint,
+  disabled,
+  children,
+}: {
+  href: ComponentProps<typeof Link>["href"];
+  label: string;
+  hint: string;
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip label={disabled ? hint : label} placement="left">
+      {disabled ? (
+        <button disabled aria-label={hint} className={`${ACTION_BTN} text-muted bg-background cursor-not-allowed`}>
+          {children}
+        </button>
+      ) : (
+        <Link href={href} aria-label={label} className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}>
+          {children}
+        </Link>
+      )}
+    </Tooltip>
+  );
+}
+
+// The fixed selection rail floats this far right of the book grid, and never closer
+// than RAIL_EDGE to the viewport edge. RAIL_WIDTH mirrors the rail's own width: a
+// 48px chip plus the column's px-2, so the clamp keeps the whole rail on screen.
+const RAIL_GAP = 20;
+const RAIL_WIDTH = 64;
+const RAIL_EDGE = 8;
 
 type BatchProgress = {
   running: boolean;
@@ -54,10 +95,11 @@ export default function LibraryPage() {
     total: 0,
   });
 
-  // ── target-list state (decoupled from filter) ────────────────
-  const [targetListId, setTargetListId] = useState<number | null>(null);
+  // ── selection rail state ─────────────────────────────────────
+  // The rail's list button opens a flyout of lists: a native <select> can't sit in a
+  // column of icon-only buttons.
+  const [listMenuOpen, setListMenuOpen] = useState(false);
   const activeList = lists?.find((l) => l.id === filters.listId);
-  const targetList = lists?.find((l) => l.id === targetListId);
 
   // Mutate a list's book_ids by ID
   // The grid is filtered by the same list, so its cached pages are stale after a change.
@@ -69,18 +111,19 @@ export default function LibraryPage() {
     },
   });
 
-  // Add selected books to the target list (or active filter list as fallback)
-  const _destinationList = targetList || activeList;
-
-  const handleAddToList = useCallback(() => {
-    if (!_destinationList || selectedIds.length === 0) return;
-    mutateBooks.mutate({
-      listId: _destinationList.id,
-      ids: [...new Set([..._destinationList.book_ids, ...selectedIds])],
-    });
-    setSelectedIds([]);
-    if (targetListId) setTargetListId(null);
-  }, [selectedIds, _destinationList, mutateBooks]);
+  // Add the selection to one list, chosen from the rail's flyout.
+  const addToList = useCallback(
+    (list: NonNullable<typeof lists>[number]) => {
+      if (selectedIds.length === 0) return;
+      mutateBooks.mutate({
+        listId: list.id,
+        ids: [...new Set([...list.book_ids, ...selectedIds])],
+      });
+      setSelectedIds([]);
+      setListMenuOpen(false);
+    },
+    [selectedIds, mutateBooks],
+  );
 
   // Remove selected books from the active list (keep list >=1 book so users can't destroy lists by accident)
   const handleRemoveFromList = useCallback(() => {
@@ -215,9 +258,34 @@ export default function LibraryPage() {
   const toggleSelect = useCallback((id: number) => setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]), []);
   const clearSelection = useCallback(() => setSelectedIds([]), []);
 
+  // The rail is position: fixed, so its horizontal offset has to be measured: it sits
+  // RAIL_GAP right of the grid's right edge, and that edge moves with the container.
+  const booksRef = useRef<HTMLDivElement | null>(null);
+  const [railLeft, setRailLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = booksRef.current;
+    if (!el) return;
+    const measure = () => {
+      // Drop the wrapper's own right padding: the grid ends at its content edge.
+      const gridRight = el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight);
+      setRailLeft(Math.min(gridRight + RAIL_GAP, window.innerWidth - RAIL_WIDTH - RAIL_EDGE));
+    };
+    measure();
+    // Width changes (container or window) both move the edge, so watch the element
+    // and the window.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   // Track the header's height so the sidebar can stick right under it (it grows when
   // the selection actions wrap or the batch progress panel appears).
-  const headerRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
 
   useEffect(() => {
@@ -239,210 +307,18 @@ export default function LibraryPage() {
   const unindexedLabel = `${selectedUnindexed.length} book${selectedUnindexed.length !== 1 ? "s" : ""}`;
   const indexedLabel = `${selectedIndexed.length} book${selectedIndexed.length !== 1 ? "s" : ""}`;
 
-  // Active list badge showing count + name when list filter is applied
-  const activeBadge = activeList ? (
-    <span className="text-xs bg-yellow-900/30 text-yellow-300 px-2.5 py-1 rounded-full whitespace-nowrap flex items-center gap-2">
-      📋 "{activeList.name}" ({activeList.book_ids.length})
-      <button onClick={clearListFilter} className="text-zinc-400 hover:text-red-400 text-sm leading-none font-bold">✕</button>
-    </span>
-  ) : null;
-
   // The page scrolls normally (document-level scrollbar); the header sticks under the
   // nav and the sidebar sticks under the header.
   const stickyOffset = NAV_HEIGHT + headerHeight;
   return (
     <div className="relative">
-      <header ref={headerRef} className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-background pr-6">
-        <div className="flex items-center gap-4 flex-wrap pt-5 pb-3 mb-2 min-w-0">
-          <SearchBar
-            value={filters.query}
-            onChange={(query) => setFilters((f) => ({ ...f, query }))}
-            placeholder="Search titles, authors, series, tags… (live)"
-          />
-          {totalRef.current > 0 && (
-            <span className="text-xs text-zinc-500 whitespace-nowrap">
-              {totalRef.current} books matched{indexedUnknownRef.current ? ' (index status unavailable)' : indexedRef.current > 0 && indexedRef.current < totalRef.current ? ` · ${indexedRef.current} indexed` : ''}
-            </span>
-          )}
-
-          {/* Active list filter */}
-          {activeBadge}
-
-          {/* Selected books action buttons */}
-          {selectedIds.length > 0 && (
-            <>
-              <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
-                {/* Chat with the selection */}
-                <Tooltip label={`Chat with ${selectionLabel}`} align="right">
-                  <Link
-                    href={{ pathname: "/chat", query: { ids: selectedIds.join(",") } }}
-                    aria-label={`Chat with ${selectionLabel}`}
-                    className={`${ACTION_BTN} bg-yellow-600 hover:bg-yellow-500 text-zinc-900`}
-                  >
-                    💬
-                  </Link>
-                </Tooltip>
-
-                {/* Extract characters — only from books whose text is in the index */}
-                {selectedUnindexed.length === 0 ? (
-                  <Tooltip label={`Extract characters from ${selectionLabel}`} align="right">
-                    <Link
-                      href={{ pathname: "/characters/extract", query: { ids: selectedIds.join(",") } }}
-                      aria-label={`Extract characters from ${selectionLabel}`}
-                      className={`${ACTION_BTN} bg-purple-700 hover:bg-purple-600 text-white`}
-                    >
-                      👥
-                    </Link>
-                  </Tooltip>
-                ) : (
-                  <Tooltip label="Index these books first — characters are read from the search index" align="right">
-                    <button
-                      disabled
-                      aria-label="Extract characters (index the selected books first)"
-                      className={`${ACTION_BTN} bg-zinc-800/80 text-zinc-500`}
-                    >
-                      👥
-                    </button>
-                  </Tooltip>
-                )}
-
-                {/* Index only the selected books that are not indexed yet */}
-                {selectedUnindexed.length > 0 && (
-                  <Tooltip label={`Add ${unindexedLabel} to the search index`} align="right">
-                    <button
-                      onClick={handleBatchIndex}
-                      disabled={progress.running || selectedIds.length < 2}
-                      aria-label={`Add ${unindexedLabel} to the search index`}
-                      className={`${ACTION_BTN} bg-green-700 hover:bg-green-600 text-white`}
-                    >
-                      🗄️
-                    </button>
-                  </Tooltip>
-                )}
-
-                {/* Remove the selected books that are already indexed */}
-                {selectedIndexed.length > 0 && (
-                  <Tooltip label={`Remove ${indexedLabel} from the search index`} align="right">
-                    <button
-                      onClick={handleBatchUnindex}
-                      disabled={progress.running}
-                      aria-label={`Remove ${indexedLabel} from the search index`}
-                      className={`${ACTION_BTN} bg-red-900/60 hover:bg-red-800/80 text-red-200`}
-                    >
-                      🗄️
-                    </button>
-                  </Tooltip>
-                )}
-
-                {/* List management buttons */}
-                {activeList ? (
-                  <Tooltip label={`Remove ${selectionLabel} from "${activeList.name}"`} align="right">
-                    <button
-                      onClick={handleRemoveFromList}
-                      disabled={selectedIds.length >= (activeList.book_ids.length ?? 0) || mutateBooks.isPending}
-                      aria-label={`Remove ${selectionLabel} from "${activeList.name}"`}
-                      className={`${ACTION_BTN} bg-red-900/60 hover:bg-red-800/80 text-red-200`}
-                    >
-                      📋
-                    </button>
-                  </Tooltip>
-                ) : (
-                  <>
-                    {/* Add to existing list — dropdown + confirm button */}
-                    {lists && lists.length > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={targetListId ?? ""}
-                          onChange={(e) => setTargetListId(e.target.value ? Number(e.target.value) : null)}
-                          className="h-9 bg-zinc-800 border border-zinc-600 text-zinc-100 font-semibold px-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-auto"
-                        >
-                          <option value="">+ Add to list…</option>
-                          {lists.map((l) => (
-                            <option key={l.id} value={l.id}>{l.name}</option>
-                          ))}
-                        </select>
-                        <Tooltip label={`Add ${selectionLabel} to the chosen list`} align="right">
-                          <button
-                            onClick={handleAddToList}
-                            disabled={!targetListId || mutateBooks.isPending}
-                            aria-label={`Add ${selectionLabel} to the chosen list`}
-                            className={`${ACTION_BTN} bg-zinc-700 hover:bg-zinc-600 text-zinc-100`}
-                          >
-                            ✓
-                          </button>
-                        </Tooltip>
-                      </div>
-                    )}
-                    <Tooltip label="Save selection as a new list" align="right">
-                      <button
-                        onClick={handleSaveAsNewList}
-                        aria-label="Save selection as a new list"
-                        className={`${ACTION_BTN} bg-zinc-700 hover:bg-zinc-600 text-zinc-100`}
-                      >
-                        📝
-                      </button>
-                    </Tooltip>
-                  </>
-                )}
-
-                {/* Dismiss the whole selection */}
-                <Tooltip label="Clear selection" align="right">
-                  <button
-                    onClick={clearSelection}
-                    aria-label="Clear selection"
-                    className={`${ACTION_BTN} bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border border-zinc-700/60`}
-                  >
-                    ✕
-                  </button>
-                </Tooltip>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Batch index progress — the bar advances as each book finishes */}
-        {(progress.running || progress.total > 0) && (
-          <div className="bg-zinc-800/60 border border-green-700/40 rounded-lg px-4 py-3 text-sm space-y-2 mb-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className={`truncate ${progress.running ? "text-green-400" : "text-zinc-300"}`}>
-                {progress.current || "Starting…"}
-              </p>
-              <div className="flex items-center gap-3 whitespace-nowrap">
-                <span className="text-xs text-zinc-400 tabular-nums">
-                  {progress.done} / {progress.total}
-                </span>
-                {!progress.running && (
-                  <button
-                    onClick={() => setProgress({ running: false, current: "", done: 0, errors: [], total: 0 })}
-                    title="Dismiss"
-                    className="text-zinc-500 hover:text-zinc-200 text-sm leading-none"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-900">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${progress.running ? "bg-green-500" : "bg-green-600/70"}`}
-                style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }}
-              />
-            </div>
-
-            {progress.errors.length > 0 && (
-              <ul className="text-red-400 pl-4 list-disc text-xs space-y-0.5">
-                {progress.errors.map((e, i) => (
-                  <li key={i}>{e.title}: {e.error}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Books scroll beneath the header's border */}
-        <div className="absolute left-0 right-0 bottom-0 h-[1px]" />
-      </header>
+       <NavSearchPortal>
+        <SearchBar
+          value={filters.query}
+          onChange={(query) => setFilters((f) => ({ ...f, query }))}
+          placeholder="Search titles, authors, series, tags…"
+        />
+      </NavSearchPortal>
 
       <section className="grid grid-cols-[240px_1fr] gap-6">
         {/* Sidebar — sticks below the header; scrolls internally only if it outgrows the viewport */}
@@ -453,8 +329,10 @@ export default function LibraryPage() {
           <FilterSidebar filters={filters} setFilters={setFilters} />
         </aside>
 
-        {/* Books — scroll with the page, like normal document flow */}
-        <div className="min-w-0 pb-16 pt-6 pl-1">
+        {/* Books — scroll with the page, like normal document flow. This wrapper is
+            measured: the fixed selection rail sits RAIL_GAP off its right edge, so it
+            follows the grid instead of the window. */}
+        <div ref={booksRef} className="min-w-0 pb-16 pl-1 pr-8 pt-6">
           <BookGrid
             query={filters.query}
             status={filters.status}
@@ -471,6 +349,168 @@ export default function LibraryPage() {
           />
         </div>
       </section>
+
+
+      {/* Selection rail — a column of emoji buttons floating at the right edge,
+          vertically centred. Fixed, so selecting books never reflows the grid. */}
+      {selectedIds.length > 0 && (
+        <aside
+          className="fixed top-1/2 z-[55] -translate-y-1/2"
+          style={{ left: railLeft ?? undefined }}
+        >
+          <div className="flex flex-col items-center gap-2.5 rounded-xl bg-background/50 px-2 py-4 shadow-sm shadow-border backdrop-blur-md">
+            {/* Chat with books — only from books whose text is in the index */}
+            <RailAction
+              href={{ pathname: "/chat", query: { ids: selectedIds.join(",") } }}
+              label={`Chat with ${selectionLabel}`}
+              hint={`Chat with ${selectionLabel}`}
+              disabled={selectedUnindexed.length > 0}
+            >
+              <ChatIcon className="h-6 w-6" />
+            </RailAction>
+
+            {/* Extract characters — only from books whose text is in the index */}
+            <RailAction
+              href={{ pathname: "/characters/extract", query: { ids: selectedIds.join(",") } }}
+              label={`Extract characters from ${selectionLabel}`}
+              hint="Index these books first — characters are read from the search index"
+              disabled={selectedUnindexed.length > 0}
+            >
+              <CharacterIcon fill="currentColor" />
+            </RailAction>
+
+            {/* Index only the selected books that are not indexed yet */}
+            {selectedUnindexed.length > 0 && (
+              <Tooltip label={`Add ${unindexedLabel} to the search index`} placement="left">
+                <button
+                  onClick={handleBatchIndex}
+                  disabled={progress.running || selectedIds.length < 2}
+                  aria-label={`Add ${unindexedLabel} to the search index`}
+                  className={`${ACTION_BTN}${progress.running || selectedIds.length < 2 ? 
+                    ' text-muted bg-background cursor-not-allowed' : 
+                    ' bg-green-500/60 hover:bg-green-500 text-white cursor-pointer'}`}
+                >
+                  <IndexAdd />
+                </button>
+              </Tooltip>
+            )}
+
+            {/* Remove the selected books that are already indexed */}
+            {selectedIndexed.length > 0 && (
+              <Tooltip label={`Remove ${indexedLabel} from the search index`} placement="left">
+                <button
+                  onClick={handleBatchUnindex}
+                  disabled={progress.running}
+                  aria-label={`Remove ${indexedLabel} from the search index`}
+                  className={`${ACTION_BTN}${progress.running || selectedIds.length < 2 ? 
+                    ' text-muted bg-background cursor-not-allowed' : 
+                    ' bg-red-500/60 hover:bg-red-500 text-white cursor-pointer'}`}
+                >
+                  <IndexRemove />
+                </button>
+              </Tooltip>
+            )}
+
+            {/* Lists: the flyout replaces the old select + confirm pair */}
+            {activeList ? (
+              <Tooltip label={`Remove ${selectionLabel} from "${activeList.name}"`} placement="left">
+                <button
+                  onClick={handleRemoveFromList}
+                  disabled={selectedIds.length >= (activeList.book_ids.length ?? 0) || mutateBooks.isPending}
+                  aria-label={`Remove ${selectionLabel} from "${activeList.name}"`}
+                  className={`${ACTION_BTN} bg-red-500/60 hover:bg-red-500 text-white cursor-pointer`}
+                >
+                  <ListRemove />
+                </button>
+              </Tooltip>
+            ) : (
+              <div className="relative">
+                <Tooltip
+                  label={
+                    lists && lists.length > 0
+                      ? `Add ${selectionLabel} to a list`
+                      : "No lists yet"
+                  }
+                  placement="left"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setListMenuOpen((open) => !open)}
+                    disabled={!lists || lists.length === 0 || mutateBooks.isPending}
+                    aria-label={`Add ${selectionLabel} to a list`}
+                    aria-expanded={listMenuOpen}
+                    aria-haspopup="menu"
+                    className={`${ACTION_BTN} bg-green-500/60 hover:bg-green-500 text-white cursor-pointer`}
+                  >
+                    <ListAdd />
+                  </button>
+                </Tooltip>
+
+                {listMenuOpen && (
+                  <>
+                    {/* Click-away layer so the flyout closes without a second click on the button */}
+                    <button
+                      type="button"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      onClick={() => setListMenuOpen(false)}
+                      className="fixed inset-0 z-[55]"
+                    />
+                    <div
+                      role="menu"
+                      aria-label={`Add ${selectionLabel} to a list`}
+                      className="absolute right-full top-0 z-[60] mr-2 w-60 overflow-y-auto rounded-lg shadow-sm shadow-border bg-card p-1"
+                      style={{ maxHeight: "min(60vh, 20rem)" }}
+                    >
+                      <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                        Add to list
+                      </p>
+                      <div className="divide-y divide-muted/20 mx-1">
+                        {lists?.map((list) => (
+                          <button
+                            key={list.id}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => addToList(list)}
+                            className="cursor-pointer rounded-md flex w-full items-center justify-between gap-2 py-1.5 px-1 text-left text-xs transition-colors text-foreground hover:bg-highlight hover:text-accent"
+                          >
+                            <span className="truncate">{list.name}</span>
+                            <span className="tabular-nums text-zinc-500">{list.book_ids.length}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <Tooltip label="Save selection as a new list" placement="left">
+              <button
+                onClick={handleSaveAsNewList}
+                aria-label="Save selection as a new list"
+                className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}
+              >
+                <FolderAdd />
+              </button>
+            </Tooltip>
+
+            <div className="my-1.5 h-px w-8 bg-border" />
+
+            {/* Dismiss the whole selection */}
+            <Tooltip label="Clear selection" placement="left">
+              <button
+                onClick={clearSelection}
+                aria-label="Clear selection"
+                className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}
+              >
+                <ClearIcon className="w-4.5 h-4.5 mt-1 ml-0.5" />
+              </button>
+            </Tooltip>
+          </div>
+        </aside>
+      )}
+
     </div>
   );
 }

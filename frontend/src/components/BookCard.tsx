@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { indexBook, unindexBook } from "@/lib/api";
+import { CheckIcon } from "@/components/icons";
 
 function renderMoons(rating: number | null | undefined) {
   if (rating == null) return "";
@@ -81,9 +82,7 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
               : "bg-zinc-900/80 border border-zinc-600 hover:border-yellow-500"
           }`}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6L5 9L10 3" stroke={isSelected ? "#18181b" : "transparent"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <CheckIcon className={isSelected ? "text-zinc-900" : "text-transparent"} />
         </button>
       )}
       {/* Cover image (fallback placeholder) */}

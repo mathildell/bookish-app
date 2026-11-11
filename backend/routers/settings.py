@@ -18,6 +18,29 @@ router = APIRouter()
 _genre_categories_cache: list[str] | None = None
 
 
+@router.get("/models")
+def list_models():
+    """Models installed on the configured Ollama host, for the Settings pickers."""
+    current = deps.get_settings()
+    base_url = current.ollama_base_url
+    try:
+        from ollama import Client
+
+        listed = Client(host=base_url, timeout=10.0).list()
+    except Exception as exc:
+        return {
+            "models": [],
+            "host": base_url,
+            "error": f"Could not reach Ollama at {base_url} ({exc})",
+        }
+
+    models = sorted({
+        str(m.get("model") or m.get("name") or "").strip()
+        for m in (listed.get("models") or [])
+    } - {""})
+    return {"models": models, "host": base_url, "error": None}
+
+
 def _genre_categories() -> list[str]:
     """Main genre categories in the library ("Fantasy" from "Fantasy.Dark")."""
     global _genre_categories_cache

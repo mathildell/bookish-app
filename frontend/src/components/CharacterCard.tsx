@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { Character } from "@/types/character";
+import { CheckIcon } from "@/components/icons";
 
 /** Two initials, used when a profile has no thumbnail yet. */
 function initials(name: string) {
@@ -59,15 +60,7 @@ export default function CharacterCard({
               : "border border-zinc-600 bg-zinc-900/80 hover:border-yellow-500"
           }`}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2 6L5 9L10 3"
-              stroke={isSelected ? "#18181b" : "transparent"}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <CheckIcon className={isSelected ? "text-zinc-900" : "text-transparent"} />
         </button>
       )}
 

@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import NavSearchPortal from "@/components/NavSearchPortal";
+import SearchBar from "@/components/SearchBar";
+import { BookIcon, ChevronIcon, TrashIcon } from "@/components/icons";
 import { deleteBookmark, fetchBookmarks, updateBookmark, type Bookmark } from "@/lib/api";
 
 function fmtDate(iso?: string | null) {
@@ -72,18 +75,18 @@ export default function BookmarksPage() {
     <div className="space-y-6 pt-5 pb-16">
       <header className="space-y-3">
         <h1 className="text-2xl font-bold tracking-tight">Bookmarks</h1>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm">
           {shown.length} saved answer{shown.length === 1 ? "" : "s"}
-          {q && all.length !== shown.length ? ` of ${all.length}` : ""} — hit 🔖 on any chat answer to
-          keep it here.
+          {q && all.length !== shown.length ? ` of ${all.length}` : ""}
         </p>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search questions, answers, notes, cited books…"
-          className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
-        />
+        <NavSearchPortal>
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+            placeholder="Search questions, answers, books…"
+            debounceMs={0}
+          />
+        </NavSearchPortal>
       </header>
 
       {shown.length === 0 ? (
@@ -129,14 +132,14 @@ function BookmarkCard({
   const [note, setNote] = useState(bookmark.note ?? "");
 
   return (
-    <article className="mb-4 break-inside-avoid rounded-xl border border-yellow-600/25 bg-yellow-500/[0.05] p-4 space-y-3">
-      <p className="text-[10px] uppercase tracking-wider text-yellow-600/90">In response to</p>
-      <p className="text-sm text-zinc-200 leading-snug">
+    <article className="mb-4 break-inside-avoid rounded-xl shadow-sm shadow-border bg-card p-4 space-y-3">
+      <p className="text-xs uppercase tracking-wider text-muted">In response to</p>
+      <blockquote className="text-sm leading-snug border-l border-l-4 border-accent pl-4">
         {bookmark.question ? `“${bookmark.question}”` : "(question not recorded)"}
-      </p>
+      </blockquote>
 
       <div
-        className={`text-sm text-zinc-300 prose prose-invert prose-sm max-w-none ${
+        className={`text-sm prose prose-sm max-w-none ${
           expanded ? "" : "max-h-40 overflow-hidden"
         }`}
       >
@@ -145,60 +148,67 @@ function BookmarkCard({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="text-[11px] text-yellow-500 hover:text-yellow-400 transition-colors"
+        className="flex items-center gap-1 text-xs cursor-pointer transition-colors hover:text-foreground text-muted"
       >
         {expanded ? "Show less" : "Show full answer"}
+        <span
+          className={`inline-flex transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
+        >
+          <ChevronIcon />
+        </span>
       </button>
 
       {bookmark.citations.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 border-t border-background pt-4">
           {bookmark.citations.map((c, i) =>
             c.calibre_id ? (
               <Link
                 key={`${c.calibre_id}-${i}`}
                 href={`/book/${c.calibre_id}`}
-                className="text-[11px] bg-zinc-800/80 text-zinc-300 px-2 py-0.5 rounded-full hover:text-white transition-colors"
+                className="text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex gap-2"
               >
-                📖 {c.title}
+                <BookIcon /> <span>{c.title}</span>
               </Link>
             ) : (
               <span
                 key={`${c.title}-${i}`}
-                className="text-[11px] bg-zinc-800/80 text-zinc-400 px-2 py-0.5 rounded-full"
+                className="text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex gap-2"
               >
-                📖 {c.title}
+                <BookIcon /> {c.title}
               </span>
             )
           )}
         </div>
       )}
 
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        onBlur={() => {
-          if (note !== (bookmark.note ?? "")) onSaveNote(note);
-        }}
-        rows={2}
-        placeholder="Add a note…"
-        className="w-full bg-zinc-950/60 border border-zinc-700/70 rounded-lg px-2 py-1.5 text-[11px] text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:ring-1 focus:ring-yellow-500/40"
-      />
+      <div className="pt-3 border-t border-background">
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={() => {
+            if (note !== (bookmark.note ?? "")) onSaveNote(note);
+          }}
+          rows={2}
+          placeholder="Add a note…"
+          className="w-full bg-background shadow-sm shadow-border rounded-lg px-2 py-1.5 text-xs placeholder-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent focus:border-yellow"
+        />
+      </div>
 
-      <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted mt-2">
         <span>
           {fmtDate(bookmark.created_at)} · {scopeLabel(bookmark)}
         </span>
         <span className="flex items-center gap-3">
-          <Link href={chatHref(bookmark)} className="hover:text-yellow-400 transition-colors">
+          <Link href={chatHref(bookmark)} className="hover:text-highlight transition-colors">
             {bookmark.scope === "write" ? "Open in Write" : "Open in chat"}
           </Link>
           <button
             type="button"
             onClick={onDelete}
             title="Delete note"
-            className="hover:text-red-400 transition-colors"
+            className="cursor-pointer hover:text-red-500 transition-colors"
           >
-            🗑
+            <TrashIcon />
           </button>
         </span>
       </div>

@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCard from "@/components/CharacterCard";
 import CharacterListSidebar from "@/components/CharacterListSidebar";
 import SearchBar from "@/components/SearchBar";
+import NavSearchPortal from "@/components/NavSearchPortal";
 import Tooltip from "@/components/Tooltip";
 import {
   createCharacter,
@@ -114,11 +115,13 @@ export default function CharactersPage() {
         className="sticky top-[65px] z-[50] border-b border-zinc-800 bg-background pr-6"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-4 pb-3 pt-5 mb-2">
-          <SearchBar
-            value={query}
-            onChange={setQuery}
-            placeholder="Search names, archetypes, roles, summaries…"
-          />
+          <NavSearchPortal>
+            <SearchBar
+              value={query}
+              onChange={setQuery}
+              placeholder="Search names, archetypes, roles, summaries…"
+            />
+          </NavSearchPortal>
 
           {!isLoading && (
             <span className="whitespace-nowrap text-xs text-zinc-500">

@@ -9,6 +9,7 @@ import {
   type CharacterCandidate,
   type FilteredEntry,
 } from "@/lib/api";
+import { CheckIcon } from "@/components/icons";
 
 type RowState = "idle" | "queued" | "running" | "ok" | "error";
 
@@ -389,15 +390,9 @@ function ExtractContent() {
                           : "border border-zinc-600 bg-zinc-900 hover:border-yellow-500"
                     }`}
                   >
-                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                      <path
-                        d="M2 6L5 9L10 3"
-                        stroke={selected[candidate.name] && !candidate.already_extracted ? "#18181b" : "transparent"}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    <CheckIcon
+                      className={`h-[11px] w-[11px] ${selected[candidate.name] && !candidate.already_extracted ? "text-zinc-900" : "text-transparent"}`}
+                    />
                   </button>
 
                   <div className="min-w-0 flex-1">

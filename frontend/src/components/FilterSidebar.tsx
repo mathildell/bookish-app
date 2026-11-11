@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { createList, deleteList, fetchFilterMetadata, fetchLists, renameList } from "@/lib/api";
 import ListSection, { LIST_ICON, type ListSectionItem } from "@/components/ListSection";
+import { ChatIcon } from "@/components/icons";
 
 export type SortOption = "date_added_desc" | "date_added_asc" | "date_read_desc" | "date_read_asc";
 export type Filters = {
@@ -42,9 +43,9 @@ export default function FilterSidebar({
     "to-read": "TBR",
   };
 
-  const statuses = (data?.statuses ?? []).filter(
+  const statuses = [null, ...(data?.statuses ?? []).filter(
     (s: string) => s !== "wont-read" && s !== "won't-read"
-  );
+  )];
 
   const statusLabel = (s: string): string => {
     const mapped = STATUS_LABELS[s] ?? STATUS_LABELS[s.replace(/-/g, "_")] ?? s;
@@ -75,11 +76,11 @@ export default function FilterSidebar({
     <aside className="w-56 flex-shrink-0 space-y-5">
       {/* Sort control */}
       <section>
-        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Sort by</label>
+        <label className="text-xs font-semibold uppercase text-muted mb-1 block">Sort by</label>
         <select
           value={filters.sort}
           onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as SortOption }))}
-          className="w-full bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+          className="w-full rounded-md px-3 py-2 text-sm bg-card shadow-sm shadow-border focus:outline-none focus:ring-2 focus:ring-accent"
         >
           {SORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -89,7 +90,7 @@ export default function FilterSidebar({
 
       {/* Index filter */}
       <section>
-        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Index</label>
+        <label className="text-xs font-semibold uppercase text-muted mb-1 block">Index</label>
         <div className="space-y-2">
           {[null, true, false].map((val) => (
             <label key={String(val)} className="flex items-center gap-2 text-sm">
@@ -97,7 +98,7 @@ export default function FilterSidebar({
                 type="radio" name="idx-filter"
                 checked={filters.indexed === val}
                 onChange={() => setFilters((f) => ({ ...f, indexed: val }))}
-                className="accent-yellow-500"
+                className="accent-accent"
               />{val === null ? "All" : val ? "Indexed" : "Not Indexed"}
             </label>
           ))}
@@ -106,24 +107,16 @@ export default function FilterSidebar({
 
       {/* Status filter */}
       <section>
-        <label className="text-xs font-semibold uppercase text-zinc-500 mb-1 block">Status</label>
+        <label className="text-xs font-semibold uppercase text-muted mb-1 block">Status</label>
         <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio" name="status-filter"
-              checked={filters.status === null}
-              onChange={() => setFilters((f) => ({ ...f, status: null }))}
-              className="accent-yellow-500"
-            />All
-          </label>
           {statuses.map((s: string) => (
             <label key={s} className="flex items-center gap-2 text-sm">
               <input
                 type="radio" name="status-filter"
                 checked={filters.status === s}
                 onChange={() => setFilters((f) => ({ ...f, status: s }))}
-                className="accent-yellow-500"
-              />{statusLabel(s)}
+                className="accent-accent"
+              />{s === null ? "All" : statusLabel(s)}
             </label>
           ))}
         </div>
@@ -146,18 +139,18 @@ export default function FilterSidebar({
             <Link
               href={{ pathname: "/chat", query: { ids: list.ids.join(",") } }}
               title={`Chat with the ${list.ids.length} book${list.ids.length !== 1 ? "s" : ""} in "${list.name}"`}
-              className={`${LIST_ICON} text-zinc-400 hover:text-yellow-400 hover:border-zinc-600`}
+              className={LIST_ICON}
             >
-              💬
+              <ChatIcon />
             </Link>
           ) : (
             <button
               type="button"
               disabled
               title="This list has no books yet"
-              className={`${LIST_ICON} text-zinc-600 opacity-40 cursor-not-allowed`}
+              className={`${LIST_ICON} cursor-not-allowed`}
             >
-              💬
+              <ChatIcon />
             </button>
           )
         }
