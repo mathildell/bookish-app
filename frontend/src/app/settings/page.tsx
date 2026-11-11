@@ -82,7 +82,7 @@ function IgnoredBookInput({ onAdd }: { onAdd: (val: string) => void }) {
         type="button"
         onClick={handleAdd}
         disabled={!input.trim()}
-        className="px-3 py-1 rounded-lg text-xs font-semibold bg-card hover:text-accent hover:bg-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1 rounded-lg text-xs font-semibold bg-card hover:text-background hover:bg-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
         + Add
       </button>
@@ -374,7 +374,7 @@ export default function SettingsPage() {
                         Reset
                       </button>
                     ) : (
-                      <span className="text-[11px] text-zinc-600">default</span>
+                      <span className="text-xs text-zinc-600">default</span>
                     )}
                   </div>
                 );
@@ -391,7 +391,7 @@ export default function SettingsPage() {
           disabled={!hasChanges || updateMut.isPending}
           className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-border ${
             hasChanges 
-              ? "cursor-pointer bg-card hover:bg-highlight hover:text-accent" 
+              ? "cursor-pointer bg-card hover:bg-highlight hover:text-background" 
               : "cursor-not-allowed bg-muted/20 text-muted"
           }`}
         >

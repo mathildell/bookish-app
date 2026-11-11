@@ -43,7 +43,7 @@ function RailAction({
           {children}
         </button>
       ) : (
-        <Link href={href} aria-label={label} className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}>
+        <Link href={href} aria-label={label} className={`${ACTION_BTN} hover:bg-highlight hover:text-background cursor-pointer`}>
           {children}
         </Link>
       )}
@@ -472,7 +472,7 @@ export default function LibraryPage() {
                             type="button"
                             role="menuitem"
                             onClick={() => addToList(list)}
-                            className="cursor-pointer rounded-md flex w-full items-center justify-between gap-2 py-1.5 px-1 text-left text-xs transition-colors text-foreground hover:bg-highlight hover:text-accent"
+                            className="cursor-pointer rounded-md flex w-full items-center justify-between gap-2 py-1.5 px-1 text-left text-xs transition-colors text-foreground hover:bg-highlight hover:text-background"
                           >
                             <span className="truncate">{list.name}</span>
                             <span className="tabular-nums text-zinc-500">{list.book_ids.length}</span>
@@ -489,7 +489,7 @@ export default function LibraryPage() {
               <button
                 onClick={handleSaveAsNewList}
                 aria-label="Save selection as a new list"
-                className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}
+                className={`${ACTION_BTN} hover:bg-highlight hover:text-background cursor-pointer`}
               >
                 <FolderAdd />
               </button>
@@ -502,7 +502,7 @@ export default function LibraryPage() {
               <button
                 onClick={clearSelection}
                 aria-label="Clear selection"
-                className={`${ACTION_BTN} hover:bg-highlight hover:text-accent cursor-pointer`}
+                className={`${ACTION_BTN} hover:bg-highlight hover:text-background cursor-pointer`}
               >
                 <ClearIcon className="w-4.5 h-4.5 mt-1 ml-0.5" />
               </button>

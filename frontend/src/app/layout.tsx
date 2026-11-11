@@ -74,7 +74,7 @@ function Nav() {
             href="/bookmarks"
             aria-label="Bookmarks"
             title="Bookmarks"
-            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-accent"
+            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-background"
           >
             <BookmarkIcon />
           </Link>
@@ -82,7 +82,7 @@ function Nav() {
             href="/settings"
             aria-label="Settings"
             title="Settings"
-            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-accent"
+            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-background"
           >
             <GearIcon />
           </Link>

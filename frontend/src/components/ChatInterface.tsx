@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
 import type { ChatMessage, Citation } from "@/types/book";
 import { createBookmark, deleteBookmark, streamChat } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
@@ -8,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
 import Tooltip from "@/components/Tooltip";
 import ThreadEmpty from "@/components/ThreadEmpty";
+import { BookIcon, BookmarkIcon, CheckIcon } from "@/components/icons"
 
 interface Props {
   calibreIds?: number[];
@@ -30,9 +32,9 @@ function ThinkingDots() {
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="relative flex h-4 w-4">
-        <span className="absolute inline-flex h-full w-full animate-spin rounded-full border-[2px] border-zinc-600 border-t-yellow-500" />
+        <span className="absolute inline-flex h-full w-full animate-spin rounded-full border-[2px] border-muted border-t-highlight" />
       </span>
-      <span className="text-sm text-zinc-400 select-none">Searching{dots}</span>
+      <span className="text-sm text-muted select-none">Searching{dots}</span>
     </div>
   );
 }
@@ -175,7 +177,7 @@ export default function ChatInterface({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 ${
+      className={`flex flex-col overflow-hidden rounded-xl bg-background shadow-sm shadow-border ${
         fill ? "h-full min-h-0" : "h-[360px] min-h-[300px]"
       } ${className}`}
     >
@@ -186,7 +188,7 @@ export default function ChatInterface({
         {messages.map((msg, i) => (
           <div key={i} className="flex flex-col">
             {msg.role === "user" ? (
-              <div className="self-end rounded-lg border border-yellow-600/40 bg-yellow-600/30 px-4 py-2 text-sm text-zinc-100">
+              <div className="self-end rounded-lg px-4 py-2 text-sm bg-accent/20 border border-accent">
                 {msg.content}
               </div>
             ) : (
@@ -198,7 +200,7 @@ export default function ChatInterface({
                       onClick={() => toggleThinking(i)}
                       aria-expanded={!!expandedThinking[i]}
                       aria-label="Toggle thinking process"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:text-zinc-200"
+                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 bg-card border border-muted/40 text-xs text-muted transition-colors hover:text-highlight"
                     >
                       <span aria-hidden>💭</span>
                       {isStreaming && i === messages.length - 1 && !msg.content
@@ -209,7 +211,7 @@ export default function ChatInterface({
                       </span>
                     </button>
                     {expandedThinking[i] && (
-                      <div className="max-h-48 w-full overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-700/60 bg-zinc-950/60 p-3 text-[12px] leading-5 text-zinc-500">
+                      <div className="max-h-48 w-full overflow-y-auto whitespace-pre-wrap rounded-lg p-3 text-xs leading-5 bg-card/60 text-muted">
                         {msg.thinking}
                       </div>
                     )}
@@ -218,25 +220,39 @@ export default function ChatInterface({
                 {msg.content && (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    className="w-full rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm text-zinc-300 prose prose-invert prose-sm max-w-none [&_p]:leading-[1.45] [&_li]:leading-[1.45]"
+                    className="w-full rounded-lg bg-card shadow-md shadow-border p-4 prose prose-invert prose-sm max-w-none [&_p]:leading-[1.25] [&_li]:leading-[1.25]"
                   >
                     {msg.content}
                   </ReactMarkdown>
                 )}
+
                 {msg.citations && msg.citations.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {msg.citations.map((c, ci) => (
-                      <span key={ci} className="text-[11px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">
-                        📖 {c.title}
-                      </span>
-                    ))}
+                  <div className="flex flex-wrap gap-1.5 border-t border-background pt-4">
+                    {msg.citations.map((c, i) =>
+                      c.calibre_id ? (
+                        <Link
+                          key={`${c.calibre_id}-${i}`}
+                          href={`/book/${c.calibre_id}`}
+                          className="text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2"
+                        >
+                          <BookIcon /> <span>{c.title}</span>
+                        </Link>
+                      ) : (
+                        <span
+                          key={`${c.title}-${i}`}
+                          className="text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2"
+                        >
+                          <BookIcon /> {c.title}
+                        </span>
+                      )
+                    )}
                   </div>
                 )}
 
                 {/* Save the finished answer (never the streaming placeholder) */}
                 {msg.content && !(isStreaming && i === messages.length - 1) && (
                   <Tooltip
-                    label={savedBookmarks[i] ? "Saved — click to remove" : "Save this answer"}
+                    label={savedBookmarks[i] ? "Saved (click to remove)" : "Bookmark this answer"}
                     align="left"
                   >
                     <button
@@ -244,14 +260,18 @@ export default function ChatInterface({
                       onClick={() => toggleBookmark(i)}
                       disabled={savingIndex === i}
                       aria-label={savedBookmarks[i] ? "Remove bookmark" : "Bookmark this answer"}
-                      className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] transition-colors disabled:opacity-50 ${
+                      className={`flex items-center gap-1 rounded-full shadow-xs shadow-border mt-2 p-1.5 pr-2.5 text-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                         savedBookmarks[i]
-                          ? "border-yellow-600/60 bg-yellow-500/10 text-yellow-300"
-                          : "border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
+                          ? "bg-green-500/60 hover:bg-green-500 text-white"
+                          : "bg-card text-muted hover:bg-highlight hover:text-card"
                       }`}
                     >
-                      🔖
-                      {savedBookmarks[i] ? "Saved" : "Save"}
+                      
+                      {savedBookmarks[i] ? (
+                        <><CheckIcon /> Saved</>
+                      ) : (
+                        <><BookmarkIcon className="w-4 h-4" strokeWidth={2} /> Bookmark</>
+                      )}
                     </button>
                   </Tooltip>
                 )}

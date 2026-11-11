@@ -77,7 +77,7 @@ export default function BookGrid({ query, status, indexed, sort, listId, totalRe
   }
 
   if (isLoading) {
-    return <div className="text-zinc-500 text-sm py-2">Loading your library…</div>;
+    return <div className="text-muted text-sm py-2">Loading your library…</div>;
   }
 
   if (isError) {
@@ -87,7 +87,7 @@ export default function BookGrid({ query, status, indexed, sort, listId, totalRe
         <p>{message}</p>
         <button
           onClick={() => refetch()}
-          className="bg-yellow-600 hover:bg-yellow-500 text-zinc-900 font-semibold px-4 py-2 rounded-md text-sm transition-colors"
+          className="bg-accent hover:bg-accent text-zinc-900 font-semibold px-4 py-2 rounded-md text-sm transition-colors"
         >
           Retry
         </button>
@@ -96,7 +96,7 @@ export default function BookGrid({ query, status, indexed, sort, listId, totalRe
   }
 
   if (!allCards?.length) {
-    return <div className="text-zinc-500 text-center py-12">No books match current filters.</div>;
+    return <div className="text-muted text-center py-12">No books match current filters.</div>;
   }
 
   return (
@@ -117,7 +117,7 @@ export default function BookGrid({ query, status, indexed, sort, listId, totalRe
       <div ref={sentinelRef} className="h-4" />
 
       {isFetchingNextPage && (
-        <div className="text-zinc-500 text-xs text-center py-3">Loading more…</div>
+        <div className="text-muted text-xs text-center py-3">Loading more…</div>
       )}
     </>
   );

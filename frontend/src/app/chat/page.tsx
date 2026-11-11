@@ -7,6 +7,7 @@ import Link from "next/link";
 import ChatInterface from "@/components/ChatInterface";
 import { fetchBook, fetchBooks } from "@/lib/api";
 import type { BookCard, BookDetail } from "@/types/book";
+import { ClearIcon, LibraryIcon, BooksIcon, BookIcon } from "@/components/icons";
 
 const PICKER_PAGE_SIZE = 30;
 
@@ -21,7 +22,7 @@ function parseIds(raw: string | null): number[] {
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="text-zinc-500 py-8">Loading…</div>}>
+    <Suspense fallback={<div className="text-muted py-8">Loading…</div>}>
       <ChatPageContent />
     </Suspense>
   );
@@ -106,15 +107,15 @@ function ChatPageContent() {
   const welcomeMessage =
     mode === "library" ? (
       <>
-        Hi! I can help you explore your book collection. Ask me anything — themes, characters, quotes, summaries — and I&apos;ll search the indexed content with citations. Select books on the left to narrow the search.
+        Explore your book collection: themes, characters, quotes, summaries... Select books on the left to narrow the search.
       </>
     ) : mode === "focus" ? (
       <>
-        📖 Ask me anything about <strong>{onlyBook?.title ?? "this book"}</strong>! I&apos;ll search its indexed content.
+        📖 Ask me anything about <strong>{onlyBook?.title ?? "this book"}</strong>.
       </>
     ) : (
       <>
-        📚 Comparing <strong>{selectedIds.length}</strong> books. Ask me to compare themes, characters, writing styles, or anything else!
+        📚 Comparing <strong>{selectedIds.length}</strong> books.
       </>
     );
 
@@ -124,31 +125,31 @@ function ChatPageContent() {
   return (
     <div className="flex h-[calc(100vh-5.5625rem)] flex-col overflow-hidden pt-4">
       <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
-      <p className="text-sm text-zinc-500 mt-1 mb-4">{description}</p>
+      <p className="text-sm text-muted mt-1 mb-4">{description}</p>
 
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar: context selection */}
-        <aside className="w-[200px] flex-shrink-0 min-h-0 overflow-hidden bg-zinc-900/50 rounded-xl border border-zinc-800 p-3 flex flex-col gap-3">
+        <aside className="w-[200px] flex-shrink-0 min-h-0 overflow-hidden bg-card rounded-xl p-3 flex flex-col gap-3 shadow-md shadow-border">
           <div className="flex items-center justify-between flex-shrink-0">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Context</p>
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide">Context</p>
             {selectedIds.length > 0 && (
               <button
                 type="button"
                 onClick={() => applySelection([])}
-                className="text-[11px] text-zinc-500 hover:text-yellow-400 transition-colors"
+                className="text-xs text-muted hover:text-accent cursor-pointer transition-colors"
               >
                 Clear
               </button>
             )}
           </div>
 
-          <div className="flex-shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2 text-[11px] leading-snug text-zinc-400">
+          <div className="flex-shrink-0 rounded-lg px-2.5 py-2 text-xs leading-snug bg-accent/20 border border-accent">
             {mode === "library" ? (
-              <>🌐 Whole library</>
+              <p className="flex gap-1 items-center"><LibraryIcon /> Whole library</p>
             ) : mode === "focus" ? (
-              <>📖 1 book in focus</>
+              <p className="flex gap-1 items-center"><BookIcon className="h-5 w-5" /> 1 book in focus</p>
             ) : (
-              <>📚 {selectedIds.length} books selected</>
+              <p className="flex gap-1 items-center"><BooksIcon /> {selectedIds.length} books selected</p>
             )}
           </div>
 
@@ -161,20 +162,20 @@ function ChatPageContent() {
               {selectedIds.map((id) => {
                 const book = selectedBooks.find((b) => b.id === id);
                 return (
-                  <div key={id} className="group/book relative aspect-[5/7] rounded-lg bg-zinc-800">
+                  <div key={id} className="group/book relative aspect-[5/7] rounded-lg bg-border">
                     {/* Clipping lives on the link, not on this grid item: overflow-hidden
                         on a grid item zeroes its automatic minimum size, which lets the
                         row collapse under the cover and overlap the next row. */}
-                    <Link href={`/book/${id}`} className="block w-full h-full overflow-hidden rounded-lg">
+                    <Link href={`/book/${id}`} className="block w-full h-full overflow-hidden rounded-lg shadow-sm shadow-border">
                       {book?.cover_uri ? (
                         <img src={book.cover_uri} alt={book.title} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-[9px] text-center px-1">
+                        <div className="w-full h-full flex items-center justify-center text-muted text-xs text-center px-1">
                           {book?.title ?? `#${id}`}
                         </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 bg-zinc-950/80 p-1 transition-opacity opacity-0 group-hover/book:opacity-100">
-                        <p className="text-[10px] text-zinc-200 leading-tight line-clamp-2 font-medium">
+                      <div className="absolute inset-x-0 bottom-0 bg-card rounded-b-md p-1 transition-opacity opacity-0 group-hover/book:opacity-100">
+                        <p className="text-xs leading-tight line-clamp-2 font-medium">
                           {book?.title ?? `#${id}`}
                         </p>
                       </div>
@@ -183,30 +184,28 @@ function ChatPageContent() {
                       type="button"
                       onClick={() => removeBook(id)}
                       aria-label={`Remove ${book?.title ?? `book ${id}`} from chat`}
-                      className="absolute top-1 right-1 h-5 w-5 rounded-full bg-zinc-950/80 text-zinc-300 text-[11px] leading-5 opacity-0 group-hover/book:opacity-100 hover:bg-red-600 hover:text-white transition-colors"
+                      className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover/book:opacity-100 transition-colors flex items-center justify-center bg-card shadow-xs shadow-border cursor-pointer hover:bg-red-500 hover:text-background"
                     >
-                      ✕
+                      <ClearIcon className="w-3 h-3" />
                     </button>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="flex-1 min-h-0 rounded-lg border border-dashed border-zinc-800 px-2 py-4 text-center">
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
+            <div className="flex-1 min-h-0 rounded-lg border border-dashed border-muted px-2 py-4 text-center">
+              <p className="text-xs text-muted leading-relaxed">
                 No books selected.
-                <br />
-                Your whole library is searched.
               </p>
             </div>
           )}
 
           {/* Add books */}
-          <div className="flex-shrink-0 border-t border-zinc-800 pt-2 flex flex-col gap-2 min-h-0">
+          <div className="flex-shrink-0 pt-2 flex flex-col gap-2 min-h-0">
             <button
               type="button"
               onClick={() => setPickerOpen((open) => !open)}
-              className="w-full py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              className="w-full py-1.5 rounded-lg text-xs font-semibold bg-background shadow-sm shadow-border text-muted hover:cursor-pointer hover:bg-highlight hover:text-card transition-colors"
             >
               {pickerOpen ? "− Close picker" : "+ Add books"}
             </button>
@@ -218,7 +217,7 @@ function ChatPageContent() {
                   value={pickerQuery}
                   onChange={(e) => setPickerQuery(e.target.value)}
                   placeholder="Search indexed books…"
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+                  className="w-full bg-card shadow-sm shadow-border rounded-lg px-2.5 py-1.5 text-xs placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
                 />
                 <div className="max-h-[180px] overflow-y-auto space-y-0.5">
                   {pickerCards.map((card) => {
@@ -226,35 +225,35 @@ function ChatPageContent() {
                     return (
                       <label
                         key={card.id}
-                        className="flex items-center gap-2 px-1 py-1 rounded cursor-pointer hover:bg-zinc-800/60"
+                        className="flex items-center gap-2 py-1 cursor-pointer hover:ring-2 hover:ring-accent mx-2.5 my-1 rounded"
                       >
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleBook(card.id)}
-                          className="accent-yellow-500 flex-shrink-0"
+                          className="accent-accent flex-shrink-0"
                         />
-                        <span className="w-5 h-7 flex-shrink-0 rounded overflow-hidden bg-zinc-800">
+                        <span className="w-5 h-7 flex-shrink-0 rounded overflow-hidden bg-muted">
                           {card.cover_uri ? (
                             <img src={card.cover_uri} alt="" className="w-full h-full object-cover" />
                           ) : null}
                         </span>
-                        <span className="text-[11px] text-zinc-300 leading-tight line-clamp-2">{card.title}</span>
+                        <span className="text-xs leading-tight line-clamp-2">{card.title}</span>
                       </label>
                     );
                   })}
                   {pickerCards.length === 0 && (
-                    <p className="text-[11px] text-zinc-600 px-1 py-2">
+                    <p className="text-xs text-muted px-1 py-2">
                       {pickerFetching ? "Searching…" : "No indexed books match."}
                     </p>
                   )}
                 </div>
                 {pickerData && pickerData.total > pickerCards.length && (
-                  <p className="text-[10px] text-zinc-600">
-                    Showing {pickerCards.length} of {pickerData.total} — refine the search.
+                  <p className="text-xs text-muted">
+                    Showing {pickerCards.length} of {pickerData.total}
                   </p>
                 )}
-                <p className="text-[10px] text-zinc-600 leading-snug">
+                <p className="text-xs leading-tight">
                   Changing selection starts a new conversation.
                 </p>
               </div>

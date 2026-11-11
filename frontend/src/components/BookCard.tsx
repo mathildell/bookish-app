@@ -2,10 +2,15 @@
 
 import type { BookCard as BookCardType } from "@/types/book";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { indexBook, unindexBook } from "@/lib/api";
-import { CheckIcon } from "@/components/icons";
+import { indexBook } from "@/lib/api";
+import { CheckIcon, ChatIcon, IndexAdd } from "@/components/icons";
+
+// Card action chip: same base for both states, colour differs.
+const CARD_ACTION =
+  "mt-3 flex w-full items-center justify-center gap-1.5 rounded-md shadow-xs shadow-border border-none py-2 text-xs font-semibold cursor-pointer transition-colors";
 
 function renderMoons(rating: number | null | undefined) {
   if (rating == null) return "";
@@ -18,6 +23,7 @@ function renderMoons(rating: number | null | undefined) {
 
 export default function BookCard({ book, selectedId, onToggleSelect, indexing }: { book: BookCardType; selectedId?: number | null; onToggleSelect?: (id: number) => void; indexing?: boolean }) {
   const [hovered, setHovered] = useState(false);
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -37,21 +43,16 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
     noticeTimer.current = setTimeout(() => setNotice(null), 2500);
   };
 
-  const handleToggleIndex = async (e: React.MouseEvent) => {
+  const handleIndex = async (e: React.MouseEvent) => {
     // The whole card is a link — without preventDefault the click follows it to /book/{id}.
     e.preventDefault();
     e.stopPropagation();
     if (loading) return;
     setLoading(true);
     try {
-      if (book.indexed) {
-        await unindexBook(book.id);
-        showNotice(true, "Removed from index");
-      } else {
-        // Indexing can take a while
-        await indexBook(book.id);
-        showNotice(true, "Indexed");
-      }
+      // Indexing can take a while
+      await indexBook(book.id);
+      showNotice(true, "Indexed");
       // Refresh the grid so the card's state and the "N indexed" counter stay truthful.
       queryClient.invalidateQueries({ queryKey: ["books"] });
     } catch {
@@ -61,12 +62,19 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
     }
   };
 
+  const openChat = (e: React.MouseEvent) => {
+    // Not a nested <Link>: an <a> inside the card's <a> breaks hydration.
+    e.preventDefault();
+    e.stopPropagation();
+    router.push(`/chat?ids=${book.id}`);
+  };
+
   return (
     <Link
       href={`/book/${book.id}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`group relative w-[180px] h-[270px] rounded-xl overflow-hidden cursor-pointer shadow-lg shadow-black/30 hover:shadow-xl transition-shadow duration-200${book.indexed ? "" : " opacity-50"}`}
+      className={`group relative w-[180px] h-[270px] rounded-xl overflow-hidden cursor-pointer shadow-sm shadow-border hover:shadow-lg hover:shadow-black/50 transition-shadow duration-200${book.indexed ? "" : " opacity-50"}`}
     >
       {/* Selection checkbox */}
       {onToggleSelect && (
@@ -76,17 +84,17 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
             e.stopPropagation();
             onToggleSelect(book.id);
           }}
-          className={`absolute top-2 left-2 z-20 w-6 h-6 rounded-md flex items-center justify-center transition-all ${
+          className={`absolute top-2 left-2 z-20 w-6 h-6 border shadow-xs shadow-black/60 rounded-md flex items-center justify-center transition-all cursor-pointer hover:ring-2 hover:ring-accent ${
             isSelected
-              ? "bg-yellow-500 shadow-md"
-              : "bg-zinc-900/80 border border-zinc-600 hover:border-yellow-500"
+              ? "bg-highlight/90 border border-accent"
+              : "bg-card/80 border-border hover:bg-card"
           }`}
         >
-          <CheckIcon className={isSelected ? "text-zinc-900" : "text-transparent"} />
+          <CheckIcon className={isSelected ? "text-accent p-0.5" : "text-transparent"} />
         </button>
       )}
       {/* Cover image (fallback placeholder) */}
-      <div className="absolute inset-0 bg-zinc-800 flex items-center justify-center">
+      <div className="absolute inset-0 bg-background flex items-center justify-center">
         {book.cover_uri ? (
           <img
             src={book.cover_uri}
@@ -94,23 +102,23 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
             className="w-full h-full object-cover"
           />
         ) : (
-          <span className="text-zinc-600 text-xs">No cover</span>
+          <span className="text-muted text-xs">No cover</span>
         )}
       </div>
 
       {/* Hover overlay */}
       <div
         className={
-          "absolute inset-x-0 bottom-0 bg-zinc-950/90 p-4 text-white transition-all duration-300 ease-out" +
+          "absolute inset-x-0 bottom-0 bg-card p-4 transition-all duration-300 ease-out" +
           (hovered ? " max-h-[100%] opacity-100" : " max-h-0 opacity-0 overflow-hidden")
         }
       >
         <p className="font-bold text-sm leading-snug line-clamp-3 mb-1">{book.title}</p>
-        <p className="text-xs text-zinc-400 italic line-clamp-2">
+        <p className="text-xs text-muted italic line-clamp-2">
           {book.authors.join(", ") || "Unknown"}
         </p>
         {book.series_name && (
-          <p className="text-[11px] text-yellow-400 mt-0.5 line-clamp-1">
+          <p className="text-xs text-muted mt-0.5 line-clamp-1">
             {book.series_name}
             {book.series_index != null ? ` #${book.series_index}` : ""}
           </p>
@@ -118,16 +126,19 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
         {book.goodreads_rating != null && (
           <p className="text-xs mt-1">{renderMoons(book.goodreads_rating)}</p>
         )}
-        <button
-          onClick={handleToggleIndex}
-          disabled={busy}
-          className={
-            "mt-3 w-full text-xs font-semibold py-2 rounded-md border-none cursor-pointer transition-opacity hover:brightness-110 disabled:opacity-50" +
-            (book.indexed ? " bg-green-600 text-white" : " bg-orange-500 text-white")
-          }
-        >
-          {busy ? "…" : book.indexed ? "Remove from index" : "Index"}
-        </button>
+
+        {book.indexed ? (
+          // Indexed → its text is searchable, so offer the chat right from the card.
+          <button onClick={openChat} className={`${CARD_ACTION} bg-background hover:bg-highlight hover:text-background`}>
+            <ChatIcon className="h-4 w-4" />
+            Chat
+          </button>
+        ) : (
+          <button onClick={handleIndex} disabled={busy} className={`${CARD_ACTION} bg-green-600/80 hover:bg-green-700 text-white disabled:bg-muted`}>
+            <IndexAdd className="h-4 w-4" />
+            Index
+          </button>
+        )}
       </div>
 
       {/* Discreet in-card loading overlay */}
@@ -135,7 +146,7 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70">
           <span className="flex items-center gap-2 text-[11px] font-semibold text-zinc-100">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-yellow-400" />
-            {book.indexed ? "Removing…" : "Indexing…"}
+            Indexing…
           </span>
         </div>
       )}

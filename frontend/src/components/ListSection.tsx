@@ -6,7 +6,7 @@ import { CancelIcon, EditIcon, TrashIcon, ValidateIcon } from "@/components/icon
 
 /** Row-level icon button, shared so both sidebars' shortcuts look identical. */
 export const LIST_ICON =
-  "flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-xs leading-none transition-colors bg-background hover:bg-highlight hover:text-accent";
+  "flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-xs leading-none transition-colors bg-background hover:bg-highlight hover:text-background";
 
 export type ListSectionItem = { id: number; name: string; ids: number[] };
 
