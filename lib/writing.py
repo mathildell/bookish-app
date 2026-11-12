@@ -6,13 +6,13 @@ Profiles are personality-first, so only portable fields go into the prompt —
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 from typing import Callable, Iterator, Optional
 
 from ollama import Client
 
+from .llm import chat_without_thinking
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,13 @@ def _tidy_beat(beat: str) -> str:
     return text
 
 
+def _tidy_beats(items) -> list[str]:
+    """At most three non-empty, pill-sized beats."""
+    if not isinstance(items, list):
+        return []
+    return [beat for beat in (_tidy_beat(item) for item in items) if beat][:3]
+
+
 def parse_json_suggestions(text: str) -> list[str]:
     """Read beats from a JSON reply, tolerating fences and stray prose around it."""
     text = (text or "").strip()
@@ -178,14 +185,8 @@ def parse_json_suggestions(text: str) -> list[str]:
             except json.JSONDecodeError:
                 data = None
     if isinstance(data, dict):
-        items = data.get("suggestions") or data.get("beats") or []
-    elif isinstance(data, list):
-        items = data
-    else:
-        return []
-    if not isinstance(items, list):
-        return []
-    return [beat for beat in (_tidy_beat(item) for item in items) if beat][:3]
+        data = data.get("suggestions") or data.get("beats") or []
+    return _tidy_beats(data)
 
 
 def parse_suggestions(text: str) -> list[str]:
@@ -196,15 +197,10 @@ def parse_suggestions(text: str) -> list[str]:
     end = text.find(_SUGGEST_CLOSE, start)
     if end < 0:
         return []
-    raw = text[start + len(_SUGGEST_OPEN) : end].strip()
     try:
-        data = json.loads(raw)
+        return _tidy_beats(json.loads(text[start + len(_SUGGEST_OPEN) : end].strip()))
     except json.JSONDecodeError:
         return []
-    if not isinstance(data, list):
-        return []
-    beats = [beat for beat in (_tidy_beat(item) for item in data) if beat]
-    return beats[:3]
 
 
 class WritingEngine:
@@ -213,19 +209,6 @@ class WritingEngine:
     def __init__(self, settings: AppSettings):
         self.s = settings
         self._client = Client(host=settings.ollama_base_url)
-        self._think_supported = self._supports_think()
-
-    @property
-    def model(self) -> str:
-        """Fall back to the chat model when no writing model is configured."""
-        return self.s.writing_model or self.s.chat_model
-
-    def _supports_think(self) -> bool:
-        """Newer clients can switch reasoning models out of their think phase."""
-        try:
-            return "think" in inspect.signature(self._client.chat).parameters
-        except (TypeError, ValueError):
-            return False
 
     def _options(self) -> dict:
         return {
@@ -241,26 +224,19 @@ class WritingEngine:
             system += f"\n\nGenre: {genre}. Let it colour the setting and diction."
         return system
 
-    def _open_stream(self, messages: list[dict]):
-        """Start a streaming turn.
+    def _chat(self, messages: list[dict], **kwargs):
+        """One call to the writing model (the chat model if none is set), reasoning off.
 
         Reasoning tokens share `num_predict` with the prose, which is how a 500-word
-        scene ends up cut in half on a thinking model. Where the client supports it,
-        reasoning is switched off for writing.
+        scene ends up cut in half on a thinking model.
         """
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "options": self._options(),
-            "stream": True,
-        }
-        if self._think_supported:
-            try:
-                return self._client.chat(think=False, **kwargs)
-            except TypeError:
-                # Older client that forwards kwargs but does not accept the flag.
-                self._think_supported = False
-        return self._client.chat(**kwargs)
+        return chat_without_thinking(
+            self._client,
+            model=self.s.writing_model_effective,
+            messages=messages,
+            options=self._options(),
+            **kwargs,
+        )
 
     def stream_scene(
         self,
@@ -296,7 +272,7 @@ class WritingEngine:
         for round_index in range(_MAX_CONTINUATIONS + 1):
             truncated = False
             try:
-                for frame in self._open_stream(messages):
+                for frame in self._chat(messages, stream=True):
                     msg = frame.get("message", {}) or {}
                     if frame.get("done"):
                         truncated = (frame.get("done_reason") or "") == "length"
@@ -398,22 +374,8 @@ class WritingEngine:
             *trimmed,
             {"role": "user", "content": "Propose the three next beats for this scene."},
         ]
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "options": self._options(),
-            "stream": False,
-            "format": "json",
-        }
         try:
-            if self._think_supported:
-                try:
-                    response = self._client.chat(think=False, **kwargs)
-                except TypeError:
-                    self._think_supported = False
-                    response = self._client.chat(**kwargs)
-            else:
-                response = self._client.chat(**kwargs)
+            response = self._chat(messages, stream=False, format="json")
             content = (response.get("message", {}) or {}).get("content") or ""
         except Exception as exc:
             logger.error("Suggestion generation failed", exc_info=exc)

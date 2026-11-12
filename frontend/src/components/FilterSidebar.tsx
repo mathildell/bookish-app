@@ -109,8 +109,8 @@ export default function FilterSidebar({
       <section>
         <label className="text-xs font-semibold uppercase text-muted mb-1 block">Status</label>
         <div className="space-y-2">
-          {statuses.map((s: string) => (
-            <label key={s} className="flex items-center gap-2 text-sm">
+          {statuses.map((s) => (
+            <label key={s ?? "all"} className="flex items-center gap-2 text-sm">
               <input
                 type="radio" name="status-filter"
                 checked={filters.status === s}

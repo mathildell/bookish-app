@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Diagnostic: check if ChromaDB chunks have zeroed-out embeddings via the official API."""
 
-import math
 import numpy as np
 import sys
 from pathlib import Path

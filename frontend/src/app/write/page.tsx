@@ -15,27 +15,11 @@ import {
   useCharacters,
   type SceneTurn,
 } from "@/lib/api";
-
-function parseIds(raw: string | null): number[] {
-  if (!raw) return [];
-  const ids = raw
-    .split(",")
-    .map((x) => Number(x.trim()))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  return Array.from(new Set(ids));
-}
+import { parseIds, initials } from "@/lib/format";
 
 function applyCastParam(ids: number[]) {
   const query = ids.length ? `?chars=${ids.join(",")}` : "";
   window.history.replaceState(null, "", `/write${query}`);
-}
-
-/** Two initials, used when a character has no thumbnail yet. */
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 export default function WritePage() {

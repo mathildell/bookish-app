@@ -2,60 +2,13 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useCallback, useEffect, useRef } from "react";
+import { fetchModels, fetchSettings, updateSettings } from "@/lib/api";
+import type { AppSettings } from "@/types/settings";
 
-interface SettingsData {
-  calibre_db_path: string;
-  calibre_url: string;
-  obsidian_vault_path: string;
-  chroma_db_path: string;
-  ollama_host: string;
-  ollama_port: number;
-  chat_model: string;
-  extraction_model: string;
-  writing_model: string;
-  writing_temperature: number;
-  writing_top_p: number;
-  writing_num_predict: number;
-  chat_num_ctx: number;
-  chat_num_predict: number;
-  embedding_model: string;
-  chunk_size: number;
-  chunk_overlap: number;
-  top_k: number;
-  ignored_books: string[];
-  genre_colors: Record<string, string>;
-  genre_categories: string[];
-}
+type SettingsData = AppSettings;
 
 // Matches the default chip tint used for genres without a configured color
 const DEFAULT_GENRE_COLOR = "#eab308";
-
-async function fetchSettings(): Promise<SettingsData> {
-  const res = await fetch("/api/settings");
-  if (!res.ok) throw new Error("Failed to load settings");
-  return res.json();
-}
-
-type OllamaModelList = { models: string[]; host: string; error: string | null };
-
-async function fetchModels(): Promise<OllamaModelList> {
-  const res = await fetch("/api/models");
-  if (!res.ok) throw new Error("Failed to load Ollama models");
-  return res.json();
-}
-
-async function updateSettings(data: Partial<SettingsData>) {
-  // genre_categories is derived from the library, never persisted
-  const payload = { ...data };
-  delete payload.genre_categories;
-  const res = await fetch("/api/settings", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Failed to save settings");
-  return res.json();
-}
 
 function IgnoredBookInput({ onAdd }: { onAdd: (val: string) => void }) {
   const [input, setInput] = useState("");

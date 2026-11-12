@@ -1,21 +1,27 @@
-"""FastAPI entry point for BookishApp."""
+"""FastAPI entry point for BookishApp.
 
+    uvicorn backend.main:app --reload --port 8000
+"""
+
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from backend.dependencies import get_settings, init_services, shutdown_services
+from backend.dependencies import init_services, shutdown_services
 from backend.routers import (
+    bookmarks,
     books,
+    character_lists,
+    characters,
     chat,
     ingest,
-    settings as settings_router,
     lists,
-    bookmarks,
-    characters,
-    character_lists,
+    settings,
     write,
 )
+
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 
 
 @asynccontextmanager
@@ -27,15 +33,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="BookishApp API", lifespan=lifespan)
 
-app.include_router(books.router, prefix="/api", tags=["books"])
-app.include_router(chat.router, prefix="/api", tags=["chat"])
-app.include_router(ingest.router, prefix="/api", tags=["index/ingest"])
-app.include_router(settings_router.router, prefix="/api", tags=["settings"])
-app.include_router(lists.router, prefix="/api", tags=["lists"])
-app.include_router(bookmarks.router, prefix="/api", tags=["bookmarks"])
-app.include_router(characters.router, prefix="/api", tags=["characters"])
-app.include_router(character_lists.router, prefix="/api", tags=["character-lists"])
-app.include_router(write.router, prefix="/api", tags=["write"])
+for module, tag in (
+    (books, "books"),
+    (chat, "chat"),
+    (ingest, "index/ingest"),
+    (settings, "settings"),
+    (lists, "lists"),
+    (bookmarks, "bookmarks"),
+    (characters, "characters"),
+    (character_lists, "character-lists"),
+    (write, "write"),
+):
+    app.include_router(module.router, prefix="/api", tags=[tag])
 
 
 @app.get("/api/health")

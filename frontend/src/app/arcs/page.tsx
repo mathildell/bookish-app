@@ -5,17 +5,9 @@ import { fetchArcs } from "@/lib/api";
 import type { ArcBook } from "@/types/book";
 import Link from "next/link";
 import { useState } from "react";
+import { fmtDate } from "@/lib/format";
 
 const sortModes = ["deadline ↑", "deadline ↓", "overdue first"] as const;
-
-function fmtDate(iso?: string | null) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
 
 /** NetGalley deadline as a timestamp, or null when unset/unparseable. */
 function deadlineValue(arc: ArcBook): number | null {

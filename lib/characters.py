@@ -193,9 +193,7 @@ class CharacterStore:
 
     def get(self, character_id: int) -> Optional[dict]:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(character_id),)
-            ).fetchone()
+            row = self._row(character_id)
             return self._hydrate(row) if row else None
 
     def count(self) -> int:
@@ -249,10 +247,7 @@ class CharacterStore:
             self._write_aliases(character_id, aliases)
             self._write_sources(character_id, sources)
             self._conn.commit()
-            row = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (character_id,)
-            ).fetchone()
-            return self._hydrate(row)
+            return self._hydrate(self._row(character_id))
 
     def update(self, character_id: int, patch: dict) -> Optional[dict]:
         payload = dict(patch)
@@ -265,10 +260,7 @@ class CharacterStore:
             fields.pop("name")
 
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(character_id),)
-            ).fetchone()
-            if not row:
+            if not self._row(character_id):
                 return None
 
             if fields:
@@ -289,10 +281,7 @@ class CharacterStore:
                 self._write_sources(character_id, sources)
 
             self._conn.commit()
-            row = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(character_id),)
-            ).fetchone()
-            return self._hydrate(row)
+            return self._hydrate(self._row(character_id))
 
     def delete(self, character_id: int) -> bool:
         with self._lock:
@@ -302,67 +291,15 @@ class CharacterStore:
             self._conn.commit()
             return cur.rowcount > 0
 
-    def merge(self, keep_id: int, other_id: int) -> Optional[dict]:
-        """Fold `other_id` into `keep_id`: union sources/aliases, fill blanks, delete other."""
-        if int(keep_id) == int(other_id):
-            return self.get(keep_id)
-
-        with self._lock:
-            keep = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(keep_id),)
-            ).fetchone()
-            other = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(other_id),)
-            ).fetchone()
-            if not keep or not other:
-                return None
-
-            aliases = {
-                r["alias"]
-                for r in self._conn.execute(
-                    "SELECT alias FROM character_aliases WHERE character_id IN (?, ?)",
-                    (int(keep_id), int(other_id)),
-                ).fetchall()
-            }
-            aliases.add(other["name"])
-            aliases.discard(keep["name"])
-
-            sources = {
-                int(r["calibre_id"])
-                for r in self._conn.execute(
-                    "SELECT calibre_id FROM character_sources WHERE character_id IN (?, ?)",
-                    (int(keep_id), int(other_id)),
-                ).fetchall()
-            }
-
-            # Keep the surviving card's values, but adopt the other's where it has none.
-            fills: dict[str, Any] = {}
-            for column in _COLUMNS:
-                if column in ("name", "status", "error"):
-                    continue
-                if not keep[column] and other[column]:
-                    fills[column] = other[column]
-
-            if fills:
-                assignments = ", ".join(f'"{k}" = ?' for k in fills)
-                self._conn.execute(
-                    f"UPDATE characters SET {assignments}, updated_at = ? WHERE id = ?",
-                    [*fills.values(), _now(), int(keep_id)],
-                )
-
-            self._write_aliases(keep_id, sorted(aliases))
-            self._write_sources(keep_id, sorted(sources))
-            self._conn.execute("DELETE FROM characters WHERE id = ?", (int(other_id),))
-            self._conn.commit()
-
-            row = self._conn.execute(
-                "SELECT * FROM characters WHERE id = ?", (int(keep_id),)
-            ).fetchone()
-            return self._hydrate(row)
-
     # ------------------------------------------------------------------ #
     # Internals                                                          #
     # ------------------------------------------------------------------ #
+
+    def _row(self, character_id: int) -> Optional[sqlite3.Row]:
+        """The raw row; callers hold `_lock`."""
+        return self._conn.execute(
+            "SELECT * FROM characters WHERE id = ?", (int(character_id),)
+        ).fetchone()
 
     def _write_aliases(self, character_id: int, aliases: list[str]):
         self._conn.execute(

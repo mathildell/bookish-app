@@ -1,16 +1,15 @@
 """Ollama chat + RAG retrieval from ChromaDB."""
 
-import json
 import logging
-import os
 import re
 import time
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 import numpy as np
 from ollama import Client
 
 from .models import AppSettings
+from .vector_store import open_collection
 
 logger = logging.getLogger(__name__)
 
@@ -227,19 +226,52 @@ def _build_rag_context(chunks: list[dict]) -> str:
     return f"\n\n## CONTEXT FOR QUESTION:\n{joined}"
 
 
-def _build_citations(chunks: list[dict]) -> list[dict]:
-    """Deduplicate citation entries by (book_id, title)."""
+def build_citations(chunks: list[dict]) -> list[dict]:
+    """One citation per distinct (book id, title) among the retrieved chunks."""
     citations: list[dict] = []
     seen: set[tuple] = set()
     for ci in chunks:
         key = (ci.get("book_id"), ci.get("book_title"))
-        if key and key not in seen:
-            citations.append({
-                "calibre_id": ci.get("book_id"),
-                "title": ci.get("book_title", ""),
-            })
+        if key not in seen:
             seen.add(key)
+            citations.append({"calibre_id": ci.get("book_id"), "title": ci.get("book_title", "")})
     return citations
+
+
+def _make_chunk(chunk_id, text: str, meta: dict, **extra) -> dict:
+    """The chunk shape every retrieval path returns."""
+    return {
+        "id": str(chunk_id),
+        "text": text,
+        "chapter": meta.get("_chapter", ""),
+        "book_id": meta.get("_cid"),
+        "book_title": meta.get("title", ""),
+        **extra,
+    }
+
+
+def _split_chunk_id(chunk_id) -> Optional[tuple[str, int]]:
+    """("<calibre_id>", n) for a "<calibre_id>_c<n>" id, else None."""
+    m = _CHUNK_ID_RE.match(str(chunk_id or ""))
+    return (m.group("prefix"), int(m.group("index"))) if m else None
+
+
+def _next_chunk_id(chunk_id) -> Optional[str]:
+    parts = _split_chunk_id(chunk_id)
+    return f"{parts[0]}_c{parts[1] + 1}" if parts else None
+
+
+def _rank_by_cosine(query_embedding: list[float], items: list[tuple[dict, list[float]]]) -> list[tuple[float, dict]]:
+    """(cosine similarity, chunk) pairs, best first."""
+    q_vec = np.asarray(query_embedding, dtype=float)
+    q_norm = float(np.linalg.norm(q_vec)) or 1.0
+    ranked = []
+    for chunk, emb in items:
+        vec = np.asarray(emb, dtype=float)
+        norm = float(np.linalg.norm(vec)) or 1.0
+        ranked.append((float(q_vec @ vec) / (q_norm * norm), chunk))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked
 
 
 class ChatEngine:
@@ -253,13 +285,7 @@ class ChatEngine:
     @property
     def collection(self):
         if self._collection is None:
-            import chromadb as _chroma
-            os.makedirs(self.s.chroma_db_path, exist_ok=True)
-            c_client = _chroma.PersistentClient(path=self.s.chroma_db_path)
-            self._collection = c_client.get_or_create_collection(
-                name="book_texts",
-                metadata={"hnsw:space": "cosine"},
-            )
+            self._collection = open_collection(self.s.chroma_db_path)
         return self._collection
 
     # ----------------------------------------------------------------- #
@@ -329,18 +355,10 @@ class ChatEngine:
             ) from exc
 
         chunks: list[dict] = []
-        ids = results["ids"][0]
-        for idx in range(len(ids)):
-            mid = results["metadatas"][0][idx]
-            # authors stored as JSON string — just discard (unused downstream)
-            chunk = {
-                "id": ids[idx],
-                "text": results["documents"][0][idx],
-                "distance": results["distances"][0][idx],
-                "chapter": mid.get("_chapter", ""),
-                "book_id": mid.get("_cid"),
-                "book_title": mid.get("title", ""),
-            }
+        for cid, doc, meta, distance in zip(
+            results["ids"][0], results["documents"][0], results["metadatas"][0], results["distances"][0]
+        ):
+            chunk = _make_chunk(cid, doc, meta, distance=distance)
             if _is_front_matter(chunk):
                 continue
             chunks.append(chunk)
@@ -371,12 +389,7 @@ class ChatEngine:
         if not chunks:
             return chunks
 
-        wanted: dict[str, str] = {}
-        for chunk in chunks:
-            m = _CHUNK_ID_RE.match(str(chunk.get("id") or ""))
-            if m:
-                nxt = f"{m.group('prefix')}_c{int(m.group('index')) + 1}"
-                wanted[nxt] = chunk["id"]
+        wanted = {nid for nid in (_next_chunk_id(c.get("id")) for c in chunks) if nid}
         if not wanted:
             return chunks
 
@@ -392,13 +405,7 @@ class ChatEngine:
         for cid, doc, meta in zip(got["ids"], got["documents"], got["metadatas"]):
             if not doc or not meta:
                 continue
-            chunk = {
-                "id": cid,
-                "text": doc,
-                "chapter": meta.get("_chapter", ""),
-                "book_id": meta.get("_cid"),
-                "book_title": meta.get("title", ""),
-            }
+            chunk = _make_chunk(cid, doc, meta)
             if not _is_front_matter(chunk):
                 by_id[cid] = chunk
 
@@ -406,11 +413,8 @@ class ChatEngine:
         seen = {c["id"] for c in chunks}
         for chunk in chunks:
             expanded.append(chunk)
-            m = _CHUNK_ID_RE.match(str(chunk.get("id") or ""))
-            if not m:
-                continue
-            nid = f"{m.group('prefix')}_c{int(m.group('index')) + 1}"
-            nxt = by_id.get(nid)
+            nid = _next_chunk_id(chunk.get("id"))
+            nxt = by_id.get(nid) if nid else None
             if nxt and nid not in seen:
                 seen.add(nid)
                 # Same distance as its parent: it is read as part of the same hit.
@@ -439,12 +443,9 @@ class ChatEngine:
 
         per_book: dict[str, list[tuple[int, str]]] = {}
         for cid in heads["ids"]:
-            m = _CHUNK_ID_RE.match(str(cid))
-            if not m:
-                continue
-            per_book.setdefault(m.group("prefix"), []).append(
-                (int(m.group("index")), str(cid))
-            )
+            parts = _split_chunk_id(cid)
+            if parts:
+                per_book.setdefault(parts[0], []).append((parts[1], str(cid)))
         tail_ids: list[str] = []
         for entries in per_book.values():
             entries.sort()
@@ -460,37 +461,24 @@ class ChatEngine:
             logger.warning("Tail fetch failed", exc_info=exc)
             return []
 
-        q_vec = np.asarray(query_embedding, dtype=float)
-        q_norm = float(np.linalg.norm(q_vec)) or 1.0
-        ranked: list[tuple[float, dict]] = []
+        candidates: list[tuple[dict, list[float]]] = []
         by_prefix: dict[str, list[tuple[int, dict]]] = {}
         for cid, doc, meta, emb in zip(
             got["ids"], got["documents"], got["metadatas"], got["embeddings"]
         ):
             if cid in exclude or not doc or not meta:
                 continue
-            chunk = {
-                "id": str(cid),
-                "text": doc,
-                "distance": None,
-                "chapter": meta.get("_chapter", ""),
-                "book_id": meta.get("_cid"),
-                "book_title": meta.get("title", ""),
-            }
+            chunk = _make_chunk(cid, doc, meta, distance=None)
             # Back matter (afterword, playlist, also-by) lives here too.
             if _is_front_matter(chunk):
                 continue
-            vec = np.asarray(emb, dtype=float)
-            norm = float(np.linalg.norm(vec)) or 1.0
-            ranked.append((float(q_vec @ vec) / (q_norm * norm), chunk))
-            m = _CHUNK_ID_RE.match(chunk["id"])
-            if m:
-                by_prefix.setdefault(m.group("prefix"), []).append(
-                    (int(m.group("index")), chunk)
-                )
-        if not ranked:
+            candidates.append((chunk, emb))
+            parts = _split_chunk_id(chunk["id"])
+            if parts:
+                by_prefix.setdefault(parts[0], []).append((parts[1], chunk))
+        if not candidates:
             return []
-        ranked.sort(key=lambda item: item[0], reverse=True)
+        ranked = _rank_by_cosine(query_embedding, candidates)
 
         # Similarity alone still loses the closing pages, because they are quiet:
         # for this book the last two chunks held the twist ending (the inn, the
@@ -565,7 +553,7 @@ class ChatEngine:
         # keeps the passage that actually answers the question: Emily's account of
         # Dahlia shoving Danny scored 0.625, while a passage that mentions the
         # fountain in passing scored 0.385 and would have been added first.
-        pool: dict[str, dict] = {}
+        pool: dict[str, tuple[dict, list[float]]] = {}
         for _df, term in rare[:_LEXICAL_KEEP_TERMS]:
             try:
                 got = self.collection.get(
@@ -581,78 +569,18 @@ class ChatEngine:
             ):
                 if cid in exclude or cid in pool or not doc or not meta:
                     continue
-                chunk = {
-                    "id": cid,
-                    "text": doc,
-                    "distance": None,
-                    "chapter": meta.get("_chapter", ""),
-                    "book_id": meta.get("_cid"),
-                    "book_title": meta.get("title", ""),
-                    "lexical": term,
-                }
-                if _is_front_matter(chunk):
-                    continue
-                chunk["_vector"] = emb
-                pool[cid] = chunk
+                chunk = _make_chunk(cid, doc, meta, distance=None, lexical=term)
+                if not _is_front_matter(chunk):
+                    pool[cid] = (chunk, emb)
         if not pool:
             return []
 
-        q_vec = np.asarray(query_embedding, dtype=float)
-        q_norm = float(np.linalg.norm(q_vec)) or 1.0
-        ranked: list[tuple[float, dict]] = []
-        for chunk in pool.values():
-            vec = np.asarray(chunk.pop("_vector"), dtype=float)
-            norm = float(np.linalg.norm(vec)) or 1.0
-            ranked.append((float(q_vec @ vec) / (q_norm * norm), chunk))
-        ranked.sort(key=lambda item: item[0], reverse=True)
-
         added: list[dict] = []
-        for cosine, chunk in ranked[:_LEXICAL_MAX_HITS]:
+        for cosine, chunk in _rank_by_cosine(query_embedding, list(pool.values()))[:_LEXICAL_MAX_HITS]:
             exclude.add(chunk["id"])
             # ChromaDB's cosine space, so this hit sorts with the semantic ones.
             added.append({**chunk, "distance": 1.0 - cosine})
         return added
-
-    # ----------------------------------------------------------------- #
-    # Chat (blocking — for tests / non-SSE paths)                       #
-    # ----------------------------------------------------------------- #
-
-    def chat(
-        self,
-        user_message: str,
-        history: list[dict],
-        calibre_ids: Optional[list[int]] = None,
-        scope: str = "book",
-        on_token: Optional[Callable[[str], None]] = None,
-    ) -> dict:
-        """Full RAG cycle, returns {"answer", "citations", "tokens_used"}|{"error"}."""
-        chunks = self.retrieve_chunks(query=user_message, calibre_ids=calibre_ids)
-        system_content = self._make_system(scope, chunks)
-        messages = self._make_messages(system_content, history, user_message)
-
-        try:
-            stream_resp = self._ollama.chat(
-                model=self.s.chat_model,
-                messages=messages,
-                options=_chat_options(self.s),
-                stream=True,
-            )
-            tokens: list[str] = []
-            for frame in stream_resp:
-                delta = frame.get("message", {}).get("content") or ""
-                if delta and on_token:
-                    on_token(delta)
-                tokens.append(delta)
-            final_answer = "".join(tokens)
-        except Exception as exc:
-            logger.error("Chat stream failed in chat()", exc_info=exc)
-            return {"error": str(exc), "citations": [], "tokens_used": 0}
-
-        return {
-            "answer": final_answer,
-            "citations": _build_citations(chunks),
-            "tokens_used": sum(len(t.split()) for t in tokens),
-        }
 
     # ----------------------------------------------------------------- #
     # Streaming wrapper (for SSE / generator callers)                   #

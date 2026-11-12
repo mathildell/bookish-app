@@ -182,8 +182,7 @@ honorifics (`mr|mrs|ms|miss|lady|lord|sir|dr`).
 
 - new candidate matching an existing name or alias → auto-merge, union sources
 - candidate whose alias collides with a *different* character → do **not** merge; flag as
-  "possible duplicate" with a manual merge action
-- `POST /api/characters/{id}/merge` unions sources + aliases and re-synthesises
+  "possible duplicate"
 
 ### Phase B — deep profile (one synthesis call per character)
 
@@ -259,7 +258,6 @@ pill **sends immediately**. If the sentinel never arrives, no pills are shown.
 | DELETE | `/api/characters/{id}` | remove profile + sources + aliases |
 | POST | `/api/characters/discover` | SSE: candidate list for `calibre_ids` |
 | POST | `/api/characters/profiles` | SSE: generate profiles for selected candidates |
-| POST | `/api/characters/{id}/merge` | merge another character into this one |
 | POST | `/api/write/stream` | SSE: scene generation + suggestions |
 | POST | `/api/write/suggestions` | regenerate the three pills |
 
@@ -285,7 +283,7 @@ explaining why, and links to `/characters/extract?ids=…`.
 
 1. Config/model plumbing, `CharacterStore`, CRUD routes, `/characters` grid. No AI.
 2. Discovery SSE, `/characters/extract`, homepage 👥 button.
-3. Profile synthesis SSE, profile page (edit, merge, extend sources).
+3. Profile synthesis SSE, profile page (edit, extend sources).
 4. Writing engine, `/write`, pills, regenerate-suggestions.
 5. Polish: voice test, scene drafts in `data/scenes.json`.
 

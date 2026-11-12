@@ -36,12 +36,6 @@ class BookRecord:
     epub_path: Optional[str] = None
     indexed: bool = False
 
-    @property
-    def starred_rating(self) -> Optional[int]:
-        if self.user_rating is None:
-            return None
-        return self.user_rating // 2
-
 
 @dataclass
 class AppSettings:

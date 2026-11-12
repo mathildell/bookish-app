@@ -23,6 +23,7 @@ from ollama import Client
 
 from .characters import normalize_name
 from .chat import ChatEngine
+from .llm import chat_without_thinking
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ def _best_role(first: Optional[str], second: Optional[str]) -> Optional[str]:
 _DISCOVERY_SYSTEM = """You are cataloguing the recurring CAST of a work of fiction: the
 people who act, speak and want things.
 
-A candidate must pass three tests.
+A candidate must pass five tests.
 
 1. PERSON. A specific individual, or a named group that acts as one ("the Grey
    Company"). Places, cities, kingdoms, houses, ships, objects, weapons, factions,
@@ -254,6 +255,10 @@ def _parse_json(raw: str):
     raise ValueError("The model did not return valid JSON")
 
 
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
 def _as_list(value) -> list[str]:
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
@@ -264,7 +269,7 @@ def _as_list(value) -> list[str]:
 
 def _as_dict(value, keys: tuple[str, ...]) -> dict:
     src = value if isinstance(value, dict) else {}
-    return {key: str(src.get(key) or "").strip() for key in keys}
+    return {key: _text(src.get(key)) for key in keys}
 
 
 def _alias_tokens(alias: str) -> list[str]:
@@ -370,40 +375,34 @@ def _focus_on_names(text: str, patterns: list[re.Pattern], limit: int = _EVIDENC
 
 
 def _normalise_profile(data: dict, model: str) -> dict:
-    voice = data.get("voice") or {}
-    appearance = data.get("appearance") or {}
-    motivations = data.get("motivations") or {}
-
-    relationships = []
-    for rel in data.get("relationships") or []:
-        if isinstance(rel, dict):
-            dynamic = str(rel.get("dynamic") or "").strip()
-            behaviour = str(rel.get("behaviour") or "").strip()
-            if dynamic or behaviour:
-                relationships.append({"dynamic": dynamic, "behaviour": behaviour})
+    voice = data.get("voice") if isinstance(data.get("voice"), dict) else {}
+    relationships = [
+        rel
+        for rel in (
+            _as_dict(r, ("dynamic", "behaviour"))
+            for r in (data.get("relationships") or [])
+            if isinstance(r, dict)
+        )
+        if rel["dynamic"] or rel["behaviour"]
+    ]
 
     return {
-        "archetype": str(data.get("archetype") or "").strip() or None,
-        "summary": str(data.get("summary") or "").strip() or None,
+        "archetype": _text(data.get("archetype")) or None,
+        "summary": _text(data.get("summary")) or None,
         "core_traits": _as_list(data.get("core_traits")),
-        "motivations": _as_dict(motivations, ("wants", "needs")),
+        "motivations": _as_dict(data.get("motivations"), ("wants", "needs")),
         "fears": _as_list(data.get("fears")),
         "flaws": _as_list(data.get("flaws")),
         "values": _as_list(data.get("values")),
         "voice": {
-            "tone": str(voice.get("tone") or "").strip(),
-            "rhythm": str(voice.get("rhythm") or "").strip(),
+            **_as_dict(voice, ("tone", "rhythm", "humour")),
             "tells": _as_list(voice.get("tells")),
-            "humour": str(voice.get("humour") or "").strip(),
         },
         "mannerisms": _as_list(data.get("mannerisms")),
-        "appearance": {
-            "signature": str(appearance.get("signature") or "").strip(),
-            "presentation": str(appearance.get("presentation") or "").strip(),
-        },
+        "appearance": _as_dict(data.get("appearance"), ("signature", "presentation")),
         "relationships": relationships,
-        "formative_experience": str(data.get("formative_experience") or "").strip() or None,
-        "arc_pattern": str(data.get("arc_pattern") or "").strip() or None,
+        "formative_experience": _text(data.get("formative_experience")) or None,
+        "arc_pattern": _text(data.get("arc_pattern")) or None,
         "situational_anchors": _as_list(data.get("situational_anchors")),
         "status": "complete",
         "error": None,
@@ -456,11 +455,7 @@ class CharacterExtractor:
             },
             "stream": True,
         }
-        try:
-            frames = self._ollama.chat(think=False, **kwargs)
-        except TypeError:
-            # ollama-python older than the `think` parameter.
-            frames = self._ollama.chat(**kwargs)
+        frames = chat_without_thinking(self._ollama, **kwargs)
 
         parts: list[str] = []
         reason = ""

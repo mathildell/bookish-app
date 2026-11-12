@@ -7,16 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { indexBook, unindexBook, writeObsidianReview, fetchSettingsSummary } from "@/lib/api";
-
-function fmtDate(iso?: string | null) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
+import { fmtDate } from "@/lib/format";
 
 /* Calibre is READ-ONLY — the app must never write to the Calibre database.
    All note/field mutations go only to Obsidian review files or local state. */

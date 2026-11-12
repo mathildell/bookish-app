@@ -1,155 +1,236 @@
-"""Application-wide singleton dependencies."""
+"""Application-wide singletons: settings, the Calibre reader and lazily-built engines.
+
+Only the cheap services start with the server. ChromaDB, the chat engine and the
+character extractor load on first use, so the library grid is up in seconds even
+on a large index.
+"""
+
+from __future__ import annotations
 
 import json
+import logging
 import os
-import sqlite3
 import threading
-import yaml
+from dataclasses import asdict
 from pathlib import Path
+from typing import Any, Optional
 
-from lib.models import AppSettings
+import yaml
+from fastapi import HTTPException
+
+from backend.storage import DATA_DIR, PROJECT_ROOT
 from lib.calibre_reader import CalibreReader
+from lib.models import AppSettings
 from lib.obsidian_writer import ObsidianWriter
+from lib.vector_store import indexed_ids_from_sqlite
+
+logger = logging.getLogger(__name__)
+
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+_INDEXED_CACHE_PATH = DATA_DIR / "indexed_ids.cache"
 
 
 # --------------------------------------------------------------------------- #
 # Globals                                                                     #
 # --------------------------------------------------------------------------- #
 
-_settings: AppSettings | None = None
-_reader: CalibreReader | None = None
-_writer: ObsidianWriter | None = None
-_ingestor = None  # imported lazily below
+_settings: Optional[AppSettings] = None
+_reader: Optional[CalibreReader] = None
+_writer: Optional[ObsidianWriter] = None
+_ingestor = None
 _chat_engine = None
 _character_store = None
 _character_extractor = None
 _indexed_ids: set[int] = set()
-_chroma_ok: bool = False
+_chroma_ok = False
+_chroma_initialized = False
+_chroma_lock = threading.Lock()
 
 
 # --------------------------------------------------------------------------- #
-# Path helpers                                                                #
+# config.yaml                                                                 #
 # --------------------------------------------------------------------------- #
 
-def _resolve_path(raw: str, root: Path) -> Path:
+# section -> {yaml key: AppSettings attribute}. Used both to read and to write
+# config.yaml, so the file layout is defined exactly once.
+_CONFIG_LAYOUT: dict[str, dict[str, str]] = {
+    "app": {
+        "calibre_db_path": "calibre_db_path",
+        "calibre_url": "calibre_url",
+        "obsidian_vault_path": "obsidian_vault_path",
+        "chroma_db_path": "chroma_db_path",
+        "ignored_books": "ignored_books",
+        "genre_colors": "genre_colors",
+    },
+    "ollama": {
+        "host": "ollama_host",
+        "port": "ollama_port",
+        "chat_model": "chat_model",
+        "extraction_model": "extraction_model",
+        "writing_model": "writing_model",
+        "embedding_model": "embedding_model",
+    },
+    "chat": {"num_ctx": "chat_num_ctx", "num_predict": "chat_num_predict"},
+    "writing": {
+        "temperature": "writing_temperature",
+        "top_p": "writing_top_p",
+        "num_predict": "writing_num_predict",
+    },
+    "ingestion": {
+        "chunk_size": "chunk_size",
+        "chunk_overlap": "chunk_overlap",
+        "top_k": "top_k",
+    },
+}
+
+# Environment variables consulted when config.yaml does not set the value.
+_ENV_FALLBACKS = {
+    "obsidian_vault_path": "OBSIDIAN_VAULT",
+    "calibre_db_path": "CALIBRE_DB",
+    "chat_model": "CHAT_MODEL",
+    "embedding_model": "EMBED_MODEL",
+}
+
+_PATH_FIELDS = ("calibre_db_path", "obsidian_vault_path", "chroma_db_path")
+
+
+def _resolve_path(raw: str) -> str:
+    """Expand `~`; relative paths are taken from the project root."""
     p = Path(raw).expanduser()
-    return p.resolve() if p.is_absolute() else (root / raw).resolve()
+    return str(p.resolve() if p.is_absolute() else (PROJECT_ROOT / raw).resolve())
 
 
-def _indexed_cache_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "data" / "indexed_ids.cache"
+def _coerce(value: Any, default: Any) -> Any:
+    """Cast a YAML value to the type of the setting's default."""
+    if isinstance(default, bool):
+        return bool(value)
+    if isinstance(default, (int, float)):
+        return type(default)(value)
+    if isinstance(default, str):
+        return str(value)
+    return value
+
+
+def load_settings() -> AppSettings:
+    """Build settings from defaults, then environment fallbacks, then config.yaml."""
+    data: dict = {}
+    if CONFIG_PATH.exists():
+        data = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+
+    defaults = asdict(AppSettings())
+    values = dict(defaults)
+    # An unset extraction model follows the chat model (resolved below).
+    values["extraction_model"] = ""
+    for attr, env in _ENV_FALLBACKS.items():
+        if env in os.environ:
+            values[attr] = os.environ[env]
+
+    for section, keys in _CONFIG_LAYOUT.items():
+        block = data.get(section) or {}
+        for key, attr in keys.items():
+            if block.get(key) is not None:
+                values[attr] = _coerce(block[key], defaults[attr])
+
+    values["extraction_model"] = values["extraction_model"] or values["chat_model"]
+    for attr in _PATH_FIELDS:
+        values[attr] = _resolve_path(values[attr])
+    return AppSettings(**values)
+
+
+def save_settings(settings: AppSettings) -> None:
+    """Write *settings* back to config.yaml in the layout `load_settings` reads."""
+    dump = {
+        section: {
+            key: _copy(getattr(settings, attr)) for key, attr in keys.items()
+        }
+        for section, keys in _CONFIG_LAYOUT.items()
+    }
+    with open(CONFIG_PATH, "w") as f:
+        yaml.dump(dump, f)
+
+
+def _copy(value: Any) -> Any:
+    """Plain list/dict copies, so YAML never emits anchors for shared objects."""
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, dict):
+        return dict(value)
+    return value
 
 
 # --------------------------------------------------------------------------- #
-# Indexed-ID loading                                                          #
+# Indexed-ID cache                                                            #
 # --------------------------------------------------------------------------- #
+# Which books are indexed is needed for every library page, but asking ChromaDB
+# takes tens of seconds on a large index. The answer is cached in a small JSON
+# file and kept current by `mark_indexed` / `mark_unindexed`.
 
-def _load_cached_indexed_ids() -> set[int] | None:
-    path = _indexed_cache_path()
-    if not path.exists():
+def _load_cached_indexed_ids() -> Optional[set[int]]:
+    if not _INDEXED_CACHE_PATH.exists():
         return None
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(_INDEXED_CACHE_PATH.read_text())
         return {int(x) for x in data.get("ids", [])}
     except Exception:
         return None
 
 
-def _save_cached_indexed_ids(ids: set[int]):
-    path = _indexed_cache_path()
+def _save_cached_indexed_ids(ids: set[int]) -> None:
     try:
-        path.write_text(json.dumps({"ids": sorted(ids)}))
+        _INDEXED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _INDEXED_CACHE_PATH.write_text(json.dumps({"ids": sorted(ids)}))
     except Exception:
         pass
 
 
-def _recover_indexed_ids_from_sqlite(chroma_path: str) -> set[int] | None:
-    sqlite_db = os.path.join(chroma_path, "chroma.sqlite3")
-    if not os.path.exists(sqlite_db):
-        return None
+def _load_indexed_ids(chroma_path: str) -> set[int]:
+    """Cache first; otherwise read chroma.sqlite3 directly and cache the result."""
+    cached = _load_cached_indexed_ids()
+    if cached:
+        logger.info("Loaded %d indexed IDs from cache", len(cached))
+        return cached
+
+    logger.info("No index cache — reading chroma.sqlite3 directly (~30s)")
     try:
-        conn = sqlite3.connect(sqlite_db)
-        rows = conn.execute(
-            "SELECT DISTINCT em.int_value FROM embedding_metadata em "
-            "WHERE em.key = '_cid'"
-        ).fetchall()
-        conn.close()
-        cids = {int(r[0]) for r in rows}
-        if cids:
-            _save_cached_indexed_ids(cids)
-        return cids
+        recovered = indexed_ids_from_sqlite(chroma_path) or set()
     except Exception as exc:
-        print(f"    [WARNING] SQLite fallback also failed: {exc}")
-        return None
+        logger.warning("Could not read indexed IDs from SQLite: %s", exc)
+        return set()
+    if recovered:
+        _save_cached_indexed_ids(recovered)
+        logger.info("Recovered %d indexed IDs from SQLite", len(recovered))
+    return recovered
+
+
+def get_indexed_ids() -> set[int]:
+    return _indexed_ids
+
+
+def mark_indexed(calibre_ids) -> None:
+    """Add book IDs to the indexed cache after a successful index."""
+    global _indexed_ids
+    _indexed_ids = _indexed_ids | {int(cid) for cid in calibre_ids}
+    _save_cached_indexed_ids(_indexed_ids)
+
+
+def mark_unindexed(calibre_ids) -> None:
+    """Drop book IDs from the indexed cache after they are removed."""
+    global _indexed_ids
+    _indexed_ids = _indexed_ids - {int(cid) for cid in calibre_ids}
+    _save_cached_indexed_ids(_indexed_ids)
 
 
 # --------------------------------------------------------------------------- #
-# Settings loading                                                           #
+# ChromaDB-backed services (lazy)                                             #
 # --------------------------------------------------------------------------- #
 
-def _load_settings_from_yaml() -> AppSettings:
-    here = Path(__file__).resolve().parent.parent
-    cfg_path = here / "config.yaml"
-    if cfg_path.exists():
-        with open(cfg_path) as f:
-            data = yaml.safe_load(f) or {}
-    else:
-        data = {}
-
-    a2 = data.get("app", {})
-    o2 = data.get("ollama", {})
-    ing = data.get("ingestion", {})
-    writing = data.get("writing", {}) or {}
-    chat = data.get("chat", {}) or {}
-
-    vault_raw: str = a2.get("obsidian_vault_path", os.environ.get("OBSIDIAN_VAULT", "~/BookReviews/"))
-    vault_path = _resolve_path(vault_raw, here)
-
-    db_raw: str = a2.get("calibre_db_path", os.environ.get("CALIBRE_DB", "~/Documents/Books/metadata.db"))
-    db_path = _resolve_path(db_raw, here)
-
-    chroma_raw: str = a2.get("chroma_db_path", str(here / "data/chroma_db"))
-    chroma_path = _resolve_path(chroma_raw, here)
-
-    return AppSettings(
-        calibre_db_path=str(db_path),
-        calibre_url=str(a2.get("calibre_url", "") or ""),
-        obsidian_vault_path=str(vault_path),
-        chroma_db_path=str(chroma_path),
-        ollama_host=o2.get("host", "192.168.2.10"),
-        ollama_port=int(o2.get("port", 11434)),
-        chat_model=o2.get("chat_model", os.environ.get("CHAT_MODEL", "llama3.1:8b")),
-        extraction_model=o2.get("extraction_model", "") or o2.get("chat_model", "llama3.1:8b"),
-        writing_model=o2.get("writing_model", "") or "",
-        writing_temperature=float(writing.get("temperature", 0.95)),
-        writing_top_p=float(writing.get("top_p", 0.95)),
-        writing_num_predict=int(writing.get("num_predict", 1200)),
-        chat_num_ctx=int(chat.get("num_ctx", 98304)),
-        chat_num_predict=int(chat.get("num_predict", 16384)),
-        embedding_model=o2.get("embedding_model", os.environ.get("EMBED_MODEL", "nomic-embed-text-v2-moe")),
-        chunk_size=int(ing.get("chunk_size", 600)),
-        chunk_overlap=int(ing.get("chunk_overlap", 10)),
-        top_k=int(ing.get("top_k", 8)),
-        ignored_books=a2.get("ignored_books", []),
-        genre_colors=a2.get("genre_colors", {}) or {},
-    )
-
-
-# --------------------------------------------------------------------------- #
-# ChromaDB lazy initialisation                                               #
-# --------------------------------------------------------------------------- #
-
-_chroma_initialized: bool = False
-_chroma_lock = threading.Lock()
-
-
-def _ensure_chroma():
-    """Load Ingestor + ChatEngine on first chat/index access, not at server start.
+def _ensure_chroma() -> None:
+    """Build the Ingestor and ChatEngine on first use, not at server start.
 
     Routes run in FastAPI's threadpool, so two requests can land here at once;
     the lock keeps the one-time ChromaDB setup single-threaded.
     """
-    global _ingestor, _chat_engine, _chroma_ok, _indexed_ids, _chroma_initialized
+    global _ingestor, _chat_engine, _chroma_ok, _chroma_initialized
     if _chroma_initialized:
         return
 
@@ -157,57 +238,35 @@ def _ensure_chroma():
         if _chroma_initialized:
             return
 
-        from lib.ingestor import Ingestor as LazyIngestor
-        from lib.chat import ChatEngine as LazyChatEngine
+        from lib.chat import ChatEngine
+        from lib.ingestor import Ingestor
 
         try:
-            _ingestor = LazyIngestor(_settings)  # type: ignore[arg-type]
-            _chat_engine = LazyChatEngine(_settings)
-            # Quick health probe via count — this forces Chromium to be loaded once
-            _ingestor._collection.count()
-            # Skip live indexed-ID refresh; cache is accurate enough and fast.
+            _ingestor = Ingestor(_settings)
+            _chat_engine = ChatEngine(_settings)
+            _ingestor.collection.count()  # health probe: forces the index to load
             _chroma_ok = True
-            print(f"[INFO] ChromaDB ready for chat ({len(_indexed_ids)} cached indexed IDs)")
+            logger.info("ChromaDB ready (%d cached indexed IDs)", len(_indexed_ids))
         except Exception as exc:
-            print(f"[WARNING] ChromaDB unavailable on demand: {exc}")
+            logger.warning("ChromaDB unavailable: %s", exc)
 
         _chroma_initialized = True
 
 
-# --------------------------------------------------------------------------- #
-# Accessors                                                                  #
-# --------------------------------------------------------------------------- #
+def check_chroma_health() -> bool:
+    _ensure_chroma()
+    return _chroma_ok
 
-def get_settings() -> AppSettings:
-    return _settings  # type: ignore[return-value]
-
-def get_reader():
-    if _reader is None:
-        raise RuntimeError("CalibreReader not initialized. Is the server running?")
-    return _reader
-
-def get_writer():
-    return _writer  # type: ignore[return-value]
 
 def get_ingestor():
-    global _ingestor
     _ensure_chroma()
     return _ingestor
 
+
 def get_chat_engine():
-    global _chat_engine
     _ensure_chroma()
     return _chat_engine
 
-def get_character_store():
-    """Lazily open data/characters.db — no ChromaDB or Ollama needed."""
-    global _character_store
-    if _character_store is None:
-        from lib.characters import CharacterStore as LazyCharacterStore
-
-        data_dir = Path(__file__).resolve().parent.parent / "data"
-        _character_store = LazyCharacterStore(data_dir / "characters.db")
-    return _character_store
 
 def get_character_extractor():
     """Extraction needs retrieval, so this pulls in ChromaDB and Ollama."""
@@ -216,99 +275,77 @@ def get_character_extractor():
     if engine is None:
         raise RuntimeError("Chat engine unavailable — check the vector index")
     if _character_extractor is None:
-        from lib.character_extractor import CharacterExtractor as LazyExtractor
+        from lib.character_extractor import CharacterExtractor
 
-        _character_extractor = LazyExtractor(_settings, engine)
+        _character_extractor = CharacterExtractor(_settings, engine)
     return _character_extractor
 
-def check_chroma_health():
-    _ensure_chroma()
-    return _chroma_ok
 
-def get_indexed_ids():
-    return _indexed_ids
+# --------------------------------------------------------------------------- #
+# Other accessors                                                             #
+# --------------------------------------------------------------------------- #
 
-
-def mark_indexed(calibre_ids):
-    """Add book IDs to the indexed cache after a successful index.
-
-    Updating in place avoids a full ChromaDB re-scan, which needs a DISTINCT over
-    every embedding's metadata and takes tens of seconds on a large library.
-    """
-    global _indexed_ids
-    _indexed_ids = _indexed_ids | {int(cid) for cid in calibre_ids}
-    _save_cached_indexed_ids(_indexed_ids)
+def get_settings() -> AppSettings:
+    return _settings  # type: ignore[return-value]
 
 
-def mark_unindexed(calibre_ids):
-    """Drop book IDs from the indexed cache after they are removed."""
-    global _indexed_ids
-    _indexed_ids = _indexed_ids - {int(cid) for cid in calibre_ids}
-    _save_cached_indexed_ids(_indexed_ids)
+def get_reader() -> Optional[CalibreReader]:
+    """The Calibre reader, or None when metadata.db could not be opened."""
+    return _reader
 
 
-def refresh_indexed_cache():
-    """Re-read indexed book IDs from ChromaDB and update cache."""
-    global _indexed_ids
-    try:
-        ingestor = get_ingestor()
-        if not ingestor:
-            return
-        ids = ingestor.get_all_indexed_ids()
-        if ids is not None:
-            _indexed_ids = ids
-            _save_cached_indexed_ids(_indexed_ids)
-    except Exception as exc:
-        print(f"[WARNING] Failed to refresh indexed cache: {exc}")
+def require_reader() -> CalibreReader:
+    """The Calibre reader, or a 503 for routes that cannot work without it."""
+    if _reader is None:
+        raise HTTPException(status_code=503, detail="Calibre library unavailable — check the database path in Settings")
+    return _reader
 
+
+def get_writer() -> ObsidianWriter:
+    return _writer  # type: ignore[return-value]
+
+
+def get_character_store():
+    """Lazily open data/characters.db — no ChromaDB or Ollama needed."""
+    global _character_store
+    if _character_store is None:
+        from lib.characters import CharacterStore
+
+        _character_store = CharacterStore(DATA_DIR / "characters.db")
+    return _character_store
 
 
 # --------------------------------------------------------------------------- #
-# Lifecycle                                                                  #
+# Lifecycle                                                                   #
 # --------------------------------------------------------------------------- #
 
-def init_services():
+def init_services() -> None:
+    """(Re)load settings and reset every service built from them."""
     global _settings, _reader, _writer, _indexed_ids, _chroma_ok
     global _ingestor, _chat_engine, _chroma_initialized, _character_store, _character_extractor
-    _settings = _load_settings_from_yaml()
+
+    _settings = load_settings()
+
+    # The engines capture the settings they were built with, so drop them on
+    # re-init; otherwise a changed chat model would never reach Ollama.
+    _ingestor = None
+    _chat_engine = None
     _character_store = None
     _character_extractor = None
     _chroma_ok = False
-
-    # The ingestor and chat engine capture the AppSettings object they were built
-    # with, so drop them on (re)init. Otherwise a settings change — above all the
-    # "Chat Model" — would never reach the model the next chat asks Ollama for.
-    _ingestor = None
-    _chat_engine = None
     _chroma_initialized = False
 
-    # Calibre DB — critical, fail fast if missing
     try:
         _reader = CalibreReader(_settings.calibre_db_path)
     except Exception as exc:
-        print(f"[WARNING] Could not connect to Calibre DB: {exc}")
+        logger.warning("Could not connect to Calibre DB: %s", exc)
         _reader = None
 
     _writer = ObsidianWriter(_settings.obsidian_vault_path)
+    _indexed_ids = _load_indexed_ids(_settings.chroma_db_path)
 
-    # Indexed IDs — fast path. Load from cache or SQLite, never block on ChromaDB.
-    try:
-        cached = _load_cached_indexed_ids()
-        if cached:
-            _indexed_ids = cached
-            print(f"[INFO] Loaded {len(_indexed_ids)} indexed IDs from cache")
-            return
 
-        print("[INFO] No index cache — reading chroma.sqlite3 directly (~30s)")
-        recovered = _recover_indexed_ids_from_sqlite(_settings.chroma_db_path)
-        if recovered:
-            _indexed_ids = recovered
-            print(f"[INFO] Recovered {len(_indexed_ids)} indexed IDs from SQLite")
-    except Exception as exc:
-        print(f"[WARNING] Failed to load indexed IDs: {exc}")
-
-def shutdown_services():
-    global _reader
+def shutdown_services() -> None:
     if _reader:
         try:
             _reader.close()

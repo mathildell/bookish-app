@@ -28,8 +28,8 @@ for cid in CALIBRE_IDS:
     print(f"📖 Re-indexing \"{book.title}\" ...")
     ok = ingestor.index_book(book)
     if ok:
-        print(f"  ✅ Done.")
+        print("  ✅ Done.")
     else:
-        print(f"  ⚠️  Index returned False — may have hit an error.")
+        print("  ⚠️  Index returned False — may have hit an error.")
 
 print("\n✅ All done!")

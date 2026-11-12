@@ -8,40 +8,38 @@ calls.
 from __future__ import annotations
 
 import asyncio
-import json
-import logging
-import threading
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
 
 from backend import dependencies as deps
 from backend.schemas import (
     Character,
     CharacterCreate,
-    CharacterMergeRequest,
     CharacterUpdate,
     DiscoverRequest,
     ProfilesRequest,
 )
-
-logger = logging.getLogger(__name__)
+from backend.sse import stream_from_thread
 
 router = APIRouter()
-
-# Marks the end of a producer thread's output in the queue.
-_END = object()
-
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache, no-transform",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
 
 
 def _store():
     return deps.get_character_store()
+
+
+def _not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Character not found")
+
+
+async def _extraction_services():
+    """The extractor (ChromaDB + Ollama) and the profile store, loaded off the loop."""
+    try:
+        extractor = await asyncio.to_thread(deps.get_character_extractor)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return extractor, await asyncio.to_thread(deps.get_character_store)
 
 
 # --------------------------------------------------------------------------- #
@@ -73,11 +71,7 @@ async def discover_characters(req: DiscoverRequest, request: Request):
     if not req.calibre_ids:
         raise HTTPException(status_code=400, detail="Select at least one book")
 
-    try:
-        extractor = await asyncio.to_thread(deps.get_character_extractor)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    store = await asyncio.to_thread(deps.get_character_store)
+    extractor, store = await _extraction_services()
     calibre_ids = [int(c) for c in req.calibre_ids]
 
     def producer(emit, stopped):
@@ -89,7 +83,7 @@ async def discover_characters(req: DiscoverRequest, request: Request):
                 event["candidates"] = _annotate(store, event["candidates"])
             emit(event)
 
-    return await _sse_stream(producer, request)
+    return stream_from_thread(request, producer, name="characters", error_as_event=False)
 
 
 @router.post("/characters/profiles")
@@ -98,11 +92,7 @@ async def generate_profiles(req: ProfilesRequest, request: Request):
     if not req.characters:
         raise HTTPException(status_code=400, detail="Select at least one character")
 
-    try:
-        extractor = await asyncio.to_thread(deps.get_character_extractor)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    store = await asyncio.to_thread(deps.get_character_store)
+    extractor, store = await _extraction_services()
     items = [c.model_dump() for c in req.characters]
 
     # Read every selected book for evidence, not just the ones discovery sampled a
@@ -122,47 +112,32 @@ async def generate_profiles(req: ProfilesRequest, request: Request):
                 event["character"] = _persist(store, item, event["profile"])
             emit(event)
 
-    return await _sse_stream(producer, request)
+    return stream_from_thread(request, producer, name="characters", error_as_event=False)
 
 
 @router.get("/characters/{character_id}", response_model=Character)
 def get_character(character_id: int):
     character = _store().get(character_id)
     if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise _not_found()
     return character
 
 
 @router.patch("/characters/{character_id}", response_model=Character)
 def update_character(character_id: int, req: CharacterUpdate):
     patch = req.model_dump(exclude_none=True)
-    if not patch:
-        character = _store().get(character_id)
-        if not character:
-            raise HTTPException(status_code=404, detail="Character not found")
-        return character
-    character = _store().update(character_id, patch)
+    store = _store()
+    character = store.update(character_id, patch) if patch else store.get(character_id)
     if not character:
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise _not_found()
     return character
 
 
 @router.delete("/characters/{character_id}")
 def delete_character(character_id: int):
     if not _store().delete(character_id):
-        raise HTTPException(status_code=404, detail="Character not found")
+        raise _not_found()
     return {"ok": True}
-
-
-@router.post("/characters/{character_id}/merge", response_model=Character)
-def merge_characters(character_id: int, req: CharacterMergeRequest):
-    """Fold another profile into this one (sources and aliases are unioned)."""
-    if req.other_id == character_id:
-        raise HTTPException(status_code=400, detail="Cannot merge a character into itself")
-    merged = _store().merge(character_id, req.other_id)
-    if not merged:
-        raise HTTPException(status_code=404, detail="Character not found")
-    return merged
 
 
 # --------------------------------------------------------------------------- #
@@ -170,9 +145,8 @@ def merge_characters(character_id: int, req: CharacterMergeRequest):
 # --------------------------------------------------------------------------- #
 
 def _titles(calibre_ids: list[int]) -> dict[int, str]:
-    try:
-        reader = deps.get_reader()
-    except RuntimeError:
+    reader = deps.get_reader()
+    if reader is None:
         return {}
     titles: dict[int, str] = {}
     for calibre_id in calibre_ids:
@@ -235,47 +209,3 @@ def _persist(store, item: dict, profile: dict) -> dict:
         "role": item.get("role"),
         "source_book_ids": sources,
     })
-
-
-async def _sse_stream(producer, request: Request) -> StreamingResponse:
-    """Run a blocking generator in a worker thread and relay its dicts as SSE.
-
-    Extraction is synchronous (Ollama + ChromaDB), so running it on the event loop
-    would freeze every other request for the length of the job.
-    """
-    loop = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue()
-    stopped = threading.Event()
-
-    def emit(payload):
-        try:
-            loop.call_soon_threadsafe(queue.put_nowait, payload)
-        except RuntimeError:
-            stopped.set()
-
-    def run():
-        try:
-            producer(emit, stopped)
-        except Exception as exc:  # surfaced to the client as an SSE error event
-            logger.error("Character extraction failed", exc_info=exc)
-            emit({"event": "error", "error": str(exc)})
-        finally:
-            emit(_END)
-
-    async def generator():
-        threading.Thread(target=run, name="character-stream", daemon=True).start()
-        try:
-            while True:
-                payload = await queue.get()
-                if payload is _END:
-                    break
-                if await request.is_disconnected():
-                    stopped.set()
-                    return
-                yield f"data: {json.dumps(payload)}\n\n"
-        finally:
-            stopped.set()
-            while not queue.empty():
-                queue.get_nowait()
-
-    return StreamingResponse(generator(), media_type="text/event-stream", headers=_SSE_HEADERS)

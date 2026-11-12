@@ -1,18 +1,18 @@
-import os
+"""EPUB -> text chunks -> embeddings -> ChromaDB."""
+
 import json
 import logging
-import math
-from typing import Optional, Callable
-from dataclasses import dataclass, field
-from datetime import datetime
+import os
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import ebooklib
-from ebooklib import epub as _epub
 from bs4 import BeautifulSoup
-import chromadb
+from ebooklib import epub as _epub
 from ollama import Client
 
-from .models import BookRecord, AppSettings
+from .models import AppSettings, BookRecord
+from .vector_store import indexed_ids_from_sqlite, open_collection
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +43,7 @@ class Ingestor:
 
     def __init__(self, settings: AppSettings):
         self.s = settings
-        os.makedirs(settings.chroma_db_path, exist_ok=True)
-        self._chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
-        self._collection = self._chroma_client.get_or_create_collection(
-            name="book_texts",
-            metadata={"hnsw:space": "cosine"},
-        )
+        self.collection = open_collection(settings.chroma_db_path)
         self._ollama = Client(host=settings.ollama_base_url)
 
     # --------------------------------------------------------------- #
@@ -56,52 +51,29 @@ class Ingestor:
     # --------------------------------------------------------------- #
 
     def get_all_indexed_ids(self) -> set[int]:
-        """Return all calibre_ids that currently have embeddings.
+        """Every calibre_id that currently has embeddings.
 
-        Uses ChromaDB's count() to verify the collection is accessible,
-        then reads distinct _cid metadata directly from chroma.sqlite3 to
-        avoid "too many SQL variables" errors with large collections (500K+ chunks).
+        Reads chroma.sqlite3 directly (fast, and free of SQLite's bound-variable
+        cap on 500K+ chunk collections); pages through the Chroma API only if
+        that fails.
         """
-        import sqlite3 as _sqlite
-
-        # Verify collection is healthy first
-        self._collection.count()  # raises if hnsw is corrupted
-
-        # Direct SQLite read is faster and avoids bound-param limits
-        db_path = os.path.join(
-            self.s.chroma_db_path,
-            "chroma.sqlite3",
-        )
-        conn = _sqlite.connect(db_path)
+        self.collection.count()  # raises if the HNSW index is corrupted
         try:
-            rows = conn.execute(
-                "SELECT DISTINCT em.int_value FROM embedding_metadata em "
-                "WHERE em.key = '_cid'"
-            ).fetchall()
-            return {int(r[0]) for r in rows}
-        except Exception:
-            # Fallback: iterate via ChromaDB API
-            cids = set()
-            batch_size = 5_000
-            total = self._collection.count()
-            seen_ids = set()
-            while len(seen_ids) < min(total, 2_000_000):
-                res = self._collection.get(limit=batch_size, include=["metadatas"])
-                new_ids = set(res.get("ids", [])) - seen_ids
-                if not new_ids:
-                    break
-                seen_ids.update(new_ids)
-            return cids
-        finally:
-            conn.close()
+            ids = indexed_ids_from_sqlite(self.s.chroma_db_path)
+            if ids is not None:
+                return ids
+        except Exception as exc:
+            logger.warning("Direct SQLite read failed; paging through Chroma", exc_info=exc)
 
-    def is_indexed(self, calibre_id: int) -> bool:
-        """Check if a book already has embeddings in ChromaDB."""
-        res = self._collection.get(
-            where={"_cid": calibre_id},
-            limit=1,
-        )
-        return len(res["ids"]) > 0
+        cids: set[int] = set()
+        offset, page = 0, 5_000
+        while True:
+            res = self.collection.get(limit=page, offset=offset, include=["metadatas"])
+            metadatas = res.get("metadatas") or []
+            cids.update(int(m["_cid"]) for m in metadatas if m and m.get("_cid") is not None)
+            if len(metadatas) < page:
+                return cids
+            offset += page
 
     def index_book(
         self,
@@ -171,7 +143,10 @@ class Ingestor:
 
         chunk_ids = [f"{book.calibre_id}_c{j}" for j in range(len(books_chunks))]
 
-        self._collection.upsert(
+        # Drop the previous run's chunks first: a re-index that produces fewer
+        # chunks would otherwise leave the old tail searchable.
+        self.delete_book(book.calibre_id)
+        self.collection.upsert(
             ids=chunk_ids,
             documents=[c.text for c in books_chunks],
             embeddings=embeddings,
@@ -184,20 +159,8 @@ class Ingestor:
 
         return True
 
-    def get_embedded_book_ids(self) -> set[int]:
-        """Return all calibre IDs that have embeddings stored."""
-        res = self._collection.get()
-        if not res or not res["metadatas"]:
-            return set()
-        cids = set()
-        for m in res["metadatas"]:
-            cid = m.get("_cid")
-            if cid is not None:
-                cids.add(int(cid))
-        return cids
-
     def delete_book(self, calibre_id: int):
-        self._collection.delete(where={"_cid": calibre_id})
+        self.collection.delete(where={"_cid": calibre_id})
 
     # --------------------------------------------------------------- #
     # Internal EPUB extraction                                        #
@@ -206,17 +169,9 @@ class Ingestor:
     @staticmethod
     def _extract_chapters(epub_path: str) -> list[tuple[str, str]]:
         try:
-            try:
-                book = _epub.read_epub(epub_path)
-            except Exception:
-                book = _epub.EpubBook()
-                book.parse_opf(epub_path + ".opf")
-                pass
-
-            items = list(book.get_items())
-
+            book = _epub.read_epub(epub_path)
             chapters = []
-            for item in items:
+            for item in book.get_items():
                 if item.get_type() != ebooklib.ITEM_DOCUMENT:
                     continue
 
@@ -240,8 +195,7 @@ class Ingestor:
             return chapters
         except Exception as exc:
             logger.warning("EPUB extraction failed", exc_info=exc)
-            pass
-        return []
+            return []
 
     # --------------------------------------------------------------- #
     # Chunking                                                        #
@@ -257,7 +211,6 @@ class Ingestor:
         chunks: list[Chunk] = []
 
         for ch_name, ch_text in chapters:
-            tokens_approx = len(ch_text) // 4
             target_tokens = chunk_size * 4
             actual_chunk_chars = max(2_000, target_tokens)
             overlap_chars = int(actual_chunk_chars * overlap_pct)
@@ -290,7 +243,6 @@ class Ingestor:
             return resp["embeddings"][0]
         except Exception as e:
             logger.warning("Embedding failed for text segment", exc_info=e)
-            print(f"  [embed err] {e}")
             return None
 
     # --------------------------------------------------------------- #

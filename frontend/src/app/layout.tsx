@@ -26,6 +26,11 @@ const WRITE_LINKS: NavLinkItem[] = [
   { label: "Sandbox", href: "/write" },
 ];
 
+const ICON_LINKS = [
+  { href: "/bookmarks", label: "Bookmarks", Icon: BookmarkIcon },
+  { href: "/settings", label: "Settings", Icon: GearIcon },
+];
+
 const navLinkClass =
   "block rounded px-2 py-1.5 text-sm text-muted transition-colors hover:bg-card hover:text-foreground";
 
@@ -70,22 +75,17 @@ function Nav() {
         {/* Pages portal their search bar here; empty on pages without one. */}
         <div id={NAV_SEARCH_SLOT_ID} className="flex w-[18rem] max-w-[28vw] min-w-0 justify-center" />
         <div className="flex justify-end gap-2">
-          <Link
-            href="/bookmarks"
-            aria-label="Bookmarks"
-            title="Bookmarks"
-            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-background"
-          >
-            <BookmarkIcon />
-          </Link>
-          <Link
-            href="/settings"
-            aria-label="Settings"
-            title="Settings"
-            className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-background"
-          >
-            <GearIcon />
-          </Link>
+          {ICON_LINKS.map(({ href, label, Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-label={label}
+              title={label}
+              className="flex h-9 w-9 items-center justify-center bg-card rounded-full text-foreground/80 transition-colors hover:bg-highlight hover:text-background"
+            >
+              <Icon />
+            </Link>
+          ))}
         </div>
       </div>
     </nav>
@@ -98,7 +98,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={inter.className}>
         <Providers>
           <Nav />
-          <div className="bg-background" style={{ height: "calc(100vh_-_3.5rem)" }}>
+          <div className="bg-background" style={{ height: "calc(100vh-3.5rem)" }}>
             <main className="max-w-7xl mx-auto h-full px-0 pb-6">{children}</main>
           </div>
         </Providers>

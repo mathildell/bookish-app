@@ -215,7 +215,7 @@ export default function CharacterDetailPage() {
   if (isError || !character) {
     return (
       <div className="space-y-3 py-16 text-center text-zinc-500">
-        <p>That character doesn&apos;t exist (it may have been merged away).</p>
+        <p>That character doesn&apos;t exist (it may have been deleted).</p>
         <Link href="/characters" className="text-yellow-500 hover:text-yellow-400">
           ← All characters
         </Link>

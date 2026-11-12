@@ -1,96 +1,83 @@
-"""Index / unindex book endpoints."""
+"""Index / unindex endpoints: turn a book's EPUB into searchable embeddings."""
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-import json as _json
 
 from backend import dependencies as deps
+from backend.sse import stream_from_thread
 from lib.ingestor import IngestionProgress
-
 
 router = APIRouter()
 
 
-@router.post("/index/{calibre_id}")
-def index_book(calibre_id: int):
-    """Start indexing a book (blocking — returns when done)."""
-    reader = deps.get_reader()
-    ingestor = deps.get_ingestor()
+class BatchIndexRequest(BaseModel):
+    calibre_ids: list[int] = []
 
-    rec = reader.get_book_by_id(calibre_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="Book not found")
 
+def _index(record) -> tuple[bool, list[str], int]:
+    """Index one book; return (success, errors, progress steps seen)."""
     errors: list[str] = []
     steps: list[str] = []
 
-    def _cb(p: IngestionProgress):
-        if p.error:
-            errors.append(p.error)
-        else:
-            steps.append(p.current_step)
+    def on_progress(p: IngestionProgress) -> None:
+        (errors if p.error else steps).append(p.error or p.current_step)
 
-    success = ingestor.index_book(rec, progress_callback=_cb)
+    ok = deps.get_ingestor().index_book(record, progress_callback=on_progress)
+    ok = ok and not errors
+    if ok:
+        deps.mark_indexed({record.calibre_id})
+    return ok, errors, len(steps)
 
-    if not success or errors:
+
+@router.post("/index/{calibre_id}")
+def index_book(calibre_id: int):
+    """Index a single book (blocking — returns when done)."""
+    record = deps.require_reader().get_book_by_id(calibre_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    ok, errors, steps = _index(record)
+    if not ok:
         raise HTTPException(status_code=500, detail=", ".join(errors))
-    deps.mark_indexed({calibre_id})
-    return {"ok": True, "message": f"Indexed {rec.title}", "chunks": len(steps)}
+    return {"ok": True, "message": f"Indexed {record.title}", "chunks": steps}
 
 
 @router.post("/unindex/{calibre_id}")
 def unindex_book(calibre_id: int):
     """Remove a book's embeddings from ChromaDB."""
-    ingestor = deps.get_ingestor()
-    ingestor.delete_book(calibre_id)
+    deps.get_ingestor().delete_book(calibre_id)
     deps.mark_unindexed({calibre_id})
     return {"ok": True, "message": f"Removed calibre_id={calibre_id} from index"}
 
 
-def _sse_event(data: dict) -> str:
-    """Format a single SSE event (must be a string, not a generator, to be streamed)."""
-    return f"data: {_json.dumps(data)}\n\n"
-
-
 @router.post("/batch-index")
-async def batch_index_books(body: dict):
-    """Index multiple books at once, streaming progress via SSE.
+async def batch_index_books(body: BatchIndexRequest, request: Request):
+    """Index several books, streaming one progress frame per step over SSE.
 
-    Body: { "calibre_ids": [1, 2, 3] }
+    data: {"id", "title", "status": "started" | "ok" | "error" | "skipped", ...}
+    data: {"done": true, "total": N}
     """
-    calibre_ids = body.get("calibre_ids", [])
-    if not calibre_ids:
+    if not body.calibre_ids:
         return {"ok": False, "message": "No IDs provided"}
 
-    reader = deps.get_reader()
-    ingestor = deps.get_ingestor()
+    reader = deps.require_reader()
 
-    async def _stream():
-        for cid in calibre_ids:
-            rec = reader.get_book_by_id(cid)
-            if not rec:
-                yield _sse_event({"id": cid, "status": "skipped", "reason": "not found"})
+    def produce(emit, stopped):
+        for cid in body.calibre_ids:
+            if stopped.is_set():
+                return
+            record = reader.get_book_by_id(cid)
+            if not record:
+                emit({"id": cid, "status": "skipped", "reason": "not found"})
                 continue
 
-            errors: list[str] = []
-            steps: list[str] = []
-
-            def _cb(p: IngestionProgress):
-                if p.error:
-                    errors.append(p.error)
-                else:
-                    steps.append(p.current_step)
-
-            yield _sse_event({"id": cid, "title": rec.title, "status": "started"})
-            success = ingestor.index_book(rec, progress_callback=_cb)
-
-            if not success or errors:
-                yield _sse_event({"id": cid, "title": rec.title, "status": "error", "errors": errors})
+            emit({"id": cid, "title": record.title, "status": "started"})
+            ok, errors, steps = _index(record)
+            if ok:
+                emit({"id": cid, "title": record.title, "status": "ok", "chunks": steps})
             else:
-                deps.mark_indexed({cid})
-                yield _sse_event({"id": cid, "title": rec.title, "status": "ok", "chunks": len(steps)})
+                emit({"id": cid, "title": record.title, "status": "error", "errors": errors})
 
-        yield _sse_event({"done": True, "total": len(calibre_ids)})
+        emit({"done": True, "total": len(body.calibre_ids)})
 
-    return StreamingResponse(_stream(), media_type="text/event-stream")
+    return stream_from_thread(request, produce, name="batch-index", error_as_event=False)

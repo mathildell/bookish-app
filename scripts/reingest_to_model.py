@@ -215,7 +215,7 @@ def main() -> int:
             )
         sys.stdout.flush()
 
-    total_chunks = ingestor._collection.count()
+    total_chunks = ingestor.collection.count()
     print()
     print(f"Ingested {ok:,} books ({failed:,} failed, {skipped:,} skipped) in {_fmt_eta(time.time() - started)}")
     print(f"Target holds {total_chunks:,} chunks at {chunk_size} tokens/chunk")

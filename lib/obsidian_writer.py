@@ -1,7 +1,9 @@
+"""Read and write book reviews as Markdown files in an Obsidian vault."""
+
+from __future__ import annotations
+
 import os
-from typing import Optional
-from datetime import datetime
-from collections import OrderedDict
+from typing import Iterator, Optional
 
 import frontmatter
 
@@ -10,13 +12,13 @@ from .models import BookRecord
 
 class ObsidianWriter:
     """
-    Reads/writes review markdown files in an Obsidian vault.
-    
-    Directory structure (from plan):
-      ~/BookReviews/arcs/   -> ARC reviews
-      ~/BookReviews/misc/   -> Non-ARC reviews
-    
-    Filename convention: [goodreads_id].md
+    Reviews live in two folders of the vault:
+
+      <vault>/arcs/  -> ARC reviews (books tagged "ARC")
+      <vault>/misc/  -> everything else
+
+    New files are named `<goodreads_id>.md`, but existing files are found by the
+    `goodreads` key in their frontmatter, so any filename works.
     """
 
     ARCS_FOLDER = "arcs"
@@ -24,139 +26,85 @@ class ObsidianWriter:
 
     def __init__(self, vault_path: str):
         self.vault_path = os.path.expanduser(vault_path)
-        if not os.path.exists(self.vault_path):
-            os.makedirs(os.path.join(self.vault_path, self.ARCS_FOLDER), exist_ok=True)
-            os.makedirs(os.path.join(self.vault_path, self.MISC_FOLDER), exist_ok=True)
-        # Index files by frontmatter goodreads ID so lookups work regardless of filename convention
+        for folder in (self.ARCS_FOLDER, self.MISC_FOLDER):
+            os.makedirs(os.path.join(self.vault_path, folder), exist_ok=True)
         self._id_index = self._build_index()
 
-    def _folder_for_book(self, book: BookRecord) -> str:
-        return self.ARCS_FOLDER if "arc" in [t.lower() for t in book.tags] else self.MISC_FOLDER
-
-    def _filename_for_book(self, book: BookRecord) -> Optional[str]:
-        if not book.goodreads_id:
-            return None
-        return f"{book.goodreads_id}.md"
-
-    def _full_paths(self, book: BookRecord):
-        folder = self._folder_for_book(book)
-        fname = self._filename_for_book(book)
-        if fname is None:
-            return (os.path.join(self.vault_path, folder, ""), folder, None)
-        return os.path.join(self.vault_path, folder, fname), folder, fname
-
     # --------------------------------------------------------------- #
-    # Writing                                                         #
+    # Index                                                            #
     # --------------------------------------------------------------- #
 
-    def write_review(self, book: BookRecord, raw_markdown: str) -> bool:
-        if not raw_markdown.strip():
-            return False
-
-        # If a file already exists for this book (via frontmatter index), reuse its path
-        existing_path = self._find_review_path(book)
-        if existing_path and os.path.exists(existing_path):
-            fpath = existing_path
-        else:
-            fpath, _, _ = self._full_paths(book)
-            if not fpath:
-                return False
-            os.makedirs(os.path.dirname(fpath), exist_ok=True)
-
-        with open(fpath, "w", encoding="utf-8") as f:
-            f.write(raw_markdown)
-
-        # Refresh index after write so new/updated files are found
-        self._id_index = self._build_index()
-        return True
-
-    # --------------------------------------------------------------- #
-    # Reading                                                         #
-    # --------------------------------------------------------------- #
-
-    def _build_index(self):
-        """Scan all .md files in arcs/ and misc/, index by frontmatter goodreads ID."""
-        index: dict[str, str] = {}
-        for folder_name in (self.ARCS_FOLDER, self.MISC_FOLDER):
-            folder_path = os.path.join(self.vault_path, folder_name)
+    def _review_files(self) -> Iterator[str]:
+        for folder in (self.ARCS_FOLDER, self.MISC_FOLDER):
+            folder_path = os.path.join(self.vault_path, folder)
             if not os.path.isdir(folder_path):
                 continue
-            for fname in os.listdir(folder_path):
-                if not fname.endswith(".md"):
-                    continue
-                fpath = os.path.join(folder_path, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        post = frontmatter.load(f)
-                    gr_id = post.get("goodreads")
-                    if gr_id:
-                        index[str(gr_id)] = fpath
-                except Exception:
-                    continue
+            for name in sorted(os.listdir(folder_path)):
+                if name.endswith(".md"):
+                    yield os.path.join(folder_path, name)
+
+    def _build_index(self) -> dict[str, str]:
+        """{goodreads id: file path}, from each review's frontmatter."""
+        index: dict[str, str] = {}
+        for path in self._review_files():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    goodreads_id = frontmatter.load(f).get("goodreads")
+            except Exception:
+                continue
+            if goodreads_id:
+                index[str(goodreads_id)] = path
         return index
 
     def _find_review_path(self, book: BookRecord) -> Optional[str]:
         if not book.goodreads_id:
             return None
-        return self._id_index.get(book.goodreads_id)
+        path = self._id_index.get(str(book.goodreads_id))
+        return path if path and os.path.exists(path) else None
 
-    def read_review(self, book: BookRecord) -> Optional[str]:
-        fpath = self._find_review_path(book)
-        if fpath is None or not os.path.exists(fpath):
-            return None
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                post = frontmatter.load(f)
-            return post.content
-        except Exception:
-            return None
+    def has_review_for(self, goodreads_id: Optional[str]) -> bool:
+        """Cheap in-memory check, used for every row of the ARC tracker."""
+        return bool(goodreads_id) and str(goodreads_id) in self._id_index
+
+    # --------------------------------------------------------------- #
+    # Read / write / delete                                            #
+    # --------------------------------------------------------------- #
 
     def read_raw_review(self, book: BookRecord) -> Optional[str]:
-        fpath = self._find_review_path(book)
-        if fpath is None or not os.path.exists(fpath):
+        """The whole review file, frontmatter included."""
+        path = self._find_review_path(book)
+        if path is None:
             return None
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return f.read()
-        except Exception:
+        except OSError:
             return None
 
-    def read_all_reviews(self) -> dict[str, tuple[str, str]]:
-        """Scan both arcs/ and misc/, return {goodreads_id: (folder, review_text)}."""
-        result: dict[str, tuple[str, str]] = {}
+    def write_review(self, book: BookRecord, raw_markdown: str) -> bool:
+        """Save the review, reusing the book's existing file if it has one."""
+        if not raw_markdown.strip():
+            return False
 
-        for folder_name in (self.ARCS_FOLDER, self.MISC_FOLDER):
-            folder_path = os.path.join(self.vault_path, folder_name)
-            if not os.path.isdir(folder_path):
-                continue
+        path = self._find_review_path(book)
+        if path is None:
+            if not book.goodreads_id:
+                return False
+            folder = self.ARCS_FOLDER if "arc" in (t.lower() for t in book.tags) else self.MISC_FOLDER
+            path = os.path.join(self.vault_path, folder, f"{book.goodreads_id}.md")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
 
-            for fname in sorted(os.listdir(folder_path)):
-                if not fname.endswith(".md"):
-                    continue
-                fpath = os.path.join(folder_path, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        post = frontmatter.load(f)
-                    gr_id = post.get("goodreads")
-                    if gr_id:
-                        result[str(gr_id)] = (folder_name, post.content)
-                except Exception:
-                    continue
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(raw_markdown)
 
-        return result
-
-    def has_review(self, book: BookRecord) -> bool:
-        return self._find_review_path(book) is not None
-
-    # --------------------------------------------------------------- #
-    # Housekeeping                                                    #
-    # --------------------------------------------------------------- #
+        # Re-scan: the frontmatter of a new or edited file decides where it is found.
+        self._id_index = self._build_index()
+        return True
 
     def delete_review(self, book: BookRecord) -> bool:
-        fpath = self._find_review_path(book)
-        if fpath and os.path.exists(fpath):
-            os.remove(fpath)
-            # Refresh index after deletion
-            self._id_index.pop(book.goodreads_id, None)
-            return True
-        return False
+        path = self._find_review_path(book)
+        if path is None:
+            return False
+        os.remove(path)
+        self._id_index.pop(str(book.goodreads_id), None)
+        return True

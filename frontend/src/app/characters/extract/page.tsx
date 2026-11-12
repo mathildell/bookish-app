@@ -10,6 +10,7 @@ import {
   type FilteredEntry,
 } from "@/lib/api";
 import { CheckIcon } from "@/components/icons";
+import { parseIds } from "@/lib/format";
 
 type RowState = "idle" | "queued" | "running" | "ok" | "error";
 
@@ -29,18 +30,6 @@ function isMinor(character: CharacterCandidate) {
 function byImportance(a: CharacterCandidate, b: CharacterCandidate) {
   const rank = roleRank(a.role) - roleRank(b.role);
   return rank !== 0 ? rank : a.name.localeCompare(b.name);
-}
-
-function parseIds(raw: string | null): number[] {
-  if (!raw) return [];
-  return Array.from(
-    new Set(
-      raw
-        .split(",")
-        .map((x) => Number(x.trim()))
-        .filter((n) => Number.isFinite(n) && n > 0)
-    )
-  );
 }
 
 export default function ExtractCharactersPage() {

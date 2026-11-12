@@ -57,16 +57,6 @@ export interface Citation {
   title: string;
 }
 
-export interface StreamToken {
-  token: string;
-}
-
-export interface StreamDone {
-  done: true;
-  answer: string;
-  citations: Citation[];
-}
-
 // ARC types
 
 export interface ArcBook {

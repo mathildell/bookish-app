@@ -9,19 +9,7 @@ import NavSearchPortal from "@/components/NavSearchPortal";
 import SearchBar from "@/components/SearchBar";
 import { BookIcon, ChevronIcon, TrashIcon } from "@/components/icons";
 import { deleteBookmark, fetchBookmarks, updateBookmark, type Bookmark } from "@/lib/api";
-
-function fmtDate(iso?: string | null) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
+import { fmtDate } from "@/lib/format";
 
 /** How much of the library the answer was actually grounded in. */
 function scopeLabel(bookmark: Bookmark) {

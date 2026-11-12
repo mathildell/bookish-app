@@ -8,17 +8,9 @@ import ChatInterface from "@/components/ChatInterface";
 import { fetchBook, fetchBooks } from "@/lib/api";
 import type { BookCard, BookDetail } from "@/types/book";
 import { ClearIcon, LibraryIcon, BooksIcon, BookIcon } from "@/components/icons";
+import { parseIds } from "@/lib/format";
 
 const PICKER_PAGE_SIZE = 30;
-
-function parseIds(raw: string | null): number[] {
-  if (!raw) return [];
-  const ids = raw
-    .split(",")
-    .map((x) => Number(x.trim()))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  return Array.from(new Set(ids));
-}
 
 export default function ChatPage() {
   return (

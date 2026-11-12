@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from typing import Optional
-from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -49,20 +49,6 @@ class BooksListResponse(BaseModel):
     offset: int
     indexed_total: int = 0
     indexed_unknown: bool = False  # true when ChromaDB is down and index status can't be trusted
-
-
-# --------------------------------------------------------------------------- #
-# Filters                                                                     #
-# --------------------------------------------------------------------------- #
-
-class BookFilterParams(BaseModel):
-    query: str = ""
-    status: Optional[str] = None
-    indexed: Optional[bool] = None
-    sort: str = "date_added_desc"
-    selected_tags: list[str] = []
-    offset: int = 0
-    limit: int = 30
 
 
 # --------------------------------------------------------------------------- #
@@ -206,8 +192,8 @@ class RelationshipPattern(BaseModel):
     behaviour: str = ""
 
 
-class Character(BaseModel):
-    id: int
+class CharacterCreate(BaseModel):
+    """Every writable field of a profile."""
     name: str
     aliases: list[str] = []
     role: Optional[str] = None
@@ -230,33 +216,13 @@ class Character(BaseModel):
     error: Optional[str] = None
     model: Optional[str] = None
     source_book_ids: list[int] = []
+
+
+class Character(CharacterCreate):
+    """A stored profile."""
+    id: int
     created_at: str = ""
     updated_at: str = ""
-
-
-class CharacterCreate(BaseModel):
-    name: str
-    aliases: list[str] = []
-    role: Optional[str] = None
-    archetype: Optional[str] = None
-    summary: Optional[str] = None
-    core_traits: list[str] = []
-    motivations: CharacterMotivations = CharacterMotivations()
-    fears: list[str] = []
-    flaws: list[str] = []
-    values: list[str] = []
-    voice: CharacterVoice = CharacterVoice()
-    mannerisms: list[str] = []
-    appearance: CharacterAppearance = CharacterAppearance()
-    relationships: list[RelationshipPattern] = []
-    formative_experience: Optional[str] = None
-    arc_pattern: Optional[str] = None
-    situational_anchors: list[str] = []
-    thumbnail: Optional[str] = None
-    status: str = "complete"
-    error: Optional[str] = None
-    model: Optional[str] = None
-    source_book_ids: list[int] = []
 
 
 class CharacterUpdate(BaseModel):
@@ -283,10 +249,6 @@ class CharacterUpdate(BaseModel):
     error: Optional[str] = None
     model: Optional[str] = None
     source_book_ids: Optional[list[int]] = None
-
-
-class CharacterMergeRequest(BaseModel):
-    other_id: int
 
 
 class WriteTurn(BaseModel):
