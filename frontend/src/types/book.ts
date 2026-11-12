@@ -48,6 +48,8 @@ export interface ChatMessage {
   citations?: Citation[];
   /** Reasoning-model output, streamed while the answer is still empty. */
   thinking?: string;
+  /** True when `content` holds a failure notice rather than an answer. */
+  error?: boolean;
 }
 
 export interface Citation {

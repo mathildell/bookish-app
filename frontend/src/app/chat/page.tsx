@@ -85,15 +85,15 @@ function ChatPageContent() {
   const description =
     mode === "library" ? (
       <>
-        Searching your <strong className="text-zinc-300">whole indexed library</strong>. Pick books in the sidebar to focus the conversation.
+        Searching your <strong className="text-highlight">whole indexed library</strong>. Pick books in the sidebar to focus the conversation.
       </>
     ) : mode === "focus" ? (
       <>
-        Focused on <strong className="text-zinc-300">{onlyBook?.title ?? "1 book"}</strong>. Questions are answered from this book.
+        Focused on <strong className="text-highlight">{onlyBook?.title ?? "1 book"}</strong>. Questions are answered from this book.
       </>
     ) : (
       <>
-        Comparing <strong className="text-zinc-300">{selectedIds.length}</strong> books. Ask comparative questions and the assistant will reference which book each passage comes from.
+        Comparing <strong className="text-highlight">{selectedIds.length}</strong> books. Ask comparative questions and the assistant will reference which book each passage comes from.
       </>
     );
 
@@ -107,23 +107,23 @@ function ChatPageContent() {
   const welcomeMessage =
     mode === "library" ? (
       <>
-        Explore your book collection: themes, characters, quotes, summaries... Select books on the left to narrow the search.
+        Explore your book collection: themes, characters, quotes, summaries... Select books on the left to narrow the search
       </>
     ) : mode === "focus" ? (
-      <>
-        📖 Ask me anything about <strong>{onlyBook?.title ?? "this book"}</strong>.
-      </>
+      <p className="flex items-center gap-1">
+        <BookIcon className="h-5 w-5" /> Ask me anything about <span className="text-highlight font-semibold">{onlyBook?.title ?? "this book"}</span>
+      </p>
     ) : (
-      <>
-        📚 Comparing <strong>{selectedIds.length}</strong> books.
-      </>
+      <p className="flex items-center gap-1">
+        <BooksIcon /> Comparing <span className="text-highlight font-semibold">{selectedIds.length}</span> books
+      </p>
     );
 
   // Remount the chat when the selection changes so history can't leak across contexts
   const chatKey = selectedIds.length ? selectedIds.slice().sort((a, b) => a - b).join("-") : "library";
 
   return (
-    <div className="flex h-[calc(100vh-5.5625rem)] flex-col overflow-hidden pt-4">
+    <div className="flex h-[calc(100vh-5.5rem)] flex-col overflow-hidden pt-4 pb-2">
       <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
       <p className="text-sm text-muted mt-1 mb-4">{description}</p>
 

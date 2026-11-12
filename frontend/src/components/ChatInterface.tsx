@@ -105,14 +105,14 @@ export default function ChatInterface({
         } else if (event.type === "error") {
           setMessages((prev) => [
             ...prev.slice(0, -1),
-            { role: "assistant", content: `⚠️ ${event.error}`, citations: [] },
+            { role: "assistant", content: `⚠️ ${event.error}`, citations: [], error: true },
           ]);
         }
       }
     } catch (err) {
       setMessages((prev) => [
         ...prev.slice(0, -1),
-        { role: "assistant", content: `⚠️ Connection error: ${err}` },
+        { role: "assistant", content: `⚠️ Connection error: ${err}`, error: true },
       ]);
     } finally {
       setIsStreaming(false);
@@ -206,7 +206,7 @@ export default function ChatInterface({
                       {isStreaming && i === messages.length - 1 && !msg.content
                         ? "Thinking…"
                         : "Thinking"}
-                      <span aria-hidden className="text-[9px]">
+                      <span aria-hidden className="text-xs">
                         {expandedThinking[i] ? "▲" : "▼"}
                       </span>
                     </button>
@@ -249,8 +249,8 @@ export default function ChatInterface({
                   </div>
                 )}
 
-                {/* Save the finished answer (never the streaming placeholder) */}
-                {msg.content && !(isStreaming && i === messages.length - 1) && (
+                {/* Save the finished answer (never the streaming placeholder or a failure notice) */}
+                {msg.content && !msg.error && !(isStreaming && i === messages.length - 1) && (
                   <Tooltip
                     label={savedBookmarks[i] ? "Saved (click to remove)" : "Bookmark this answer"}
                     align="left"
@@ -287,7 +287,7 @@ export default function ChatInterface({
       </div>
 
       {/* Input area */}
-      <div className="flex-shrink-0 border-t border-zinc-800 p-4">
+      <div className="flex-shrink-0 p-4">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -301,12 +301,12 @@ export default function ChatInterface({
             onChange={(e) => setInput(e.target.value)}
             placeholder={placeholder}
             disabled={isStreaming}
-            className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-50"
+            className="flex-1 rounded-lg px-4 py-4 text-sm placeholder-muted focus:outline-none bg-card shadow-sm shadow-border focus:ring-2 focus:ring-accent disabled:opacity-50 shadow-sm shadow-border"
           />
           <button
             type="submit"
             disabled={isStreaming || !input.trim()}
-            className="bg-yellow-600 hover:bg-yellow-500 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-900 font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+            className="disabled:opacity-30 disabled:cursor-not-allowed transition-colors px-6 py-2.5 rounded-lg text-sm font-semibold cursor-pointer bg-card hover:bg-highlight hover:text-background"
           >
             {isStreaming ? "…" : "Send"}
           </button>
