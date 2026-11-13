@@ -16,6 +16,7 @@ import {
   type SceneTurn,
 } from "@/lib/api";
 import { parseIds, initials } from "@/lib/format";
+import { BookmarkIcon, CheckIcon, ClearIcon, SparklesIcon } from "@/components/icons";
 
 function applyCastParam(ids: number[]) {
   const query = ids.length ? `?chars=${ids.join(",")}` : "";
@@ -24,7 +25,7 @@ function applyCastParam(ids: number[]) {
 
 export default function WritePage() {
   return (
-    <Suspense fallback={<div className="py-8 text-zinc-500">Loading…</div>}>
+    <Suspense fallback={<div className="py-8 text-muted">Loading…</div>}>
       <WritePageContent />
     </Suspense>
   );
@@ -181,14 +182,17 @@ function WritePageContent() {
           onClick={() => toggleBookmark(index)}
           disabled={savingIndex === index}
           aria-label={saved ? "Remove bookmark" : "Bookmark this scene"}
-          className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] transition-colors disabled:opacity-50 ${
+          className={`flex items-center gap-1 rounded-full shadow-xs shadow-border p-1.5 pr-2.5 text-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
             saved
-              ? "border-yellow-600/60 bg-yellow-500/10 text-yellow-300"
-              : "border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
+              ? "bg-green-500/60 hover:bg-green-500 text-white"
+              : "bg-card text-muted hover:bg-highlight hover:text-card"
           }`}
         >
-          🔖
-          {saved ? "Saved" : "Save"}
+          {saved ? (
+            <><CheckIcon /> Saved</>
+          ) : (
+            <><BookmarkIcon className="w-4 h-4" strokeWidth={2} /> Save</>
+          )}
         </button>
       </Tooltip>
     );
@@ -210,19 +214,23 @@ function WritePageContent() {
   const earlierTurns = turns.slice(0, -1);
 
   return (
-    <div className="flex h-[calc(100vh-5.5625rem)] flex-col overflow-hidden pt-4">
+    <div className="flex h-[calc(100vh-5.5rem)] flex-col overflow-hidden pt-4 pb-2">
       <h1 className="text-2xl font-bold tracking-tight">Write</h1>
-      <p className="mb-4 mt-1 text-sm text-zinc-500">
-        {cast.length === 0
-          ? "Pick a cast on the left to start a scene."
-          : `Casting ${cast.map((c) => c.name).join(", ")}.`}
+      <p className="text-sm text-muted mt-1 mb-4">
+        {cast.length === 0 ? (
+          "Pick a cast on the left to start a scene."
+        ) : (
+          <>
+            Casting <strong className="text-highlight">{cast.map((c) => c.name).join(", ")}</strong>.
+          </>
+        )}
       </p>
 
-      <div className="flex min-h-0 flex-1 gap-4">
+      <div className="flex gap-4 flex-1 min-h-0">
         {/* Same shape as the chat page's context column: the selection, then a picker. */}
-        <aside className="flex w-[200px] flex-shrink-0 flex-col gap-3 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+        <aside className="flex w-[200px] flex-shrink-0 min-h-0 flex-col gap-3 overflow-hidden rounded-xl bg-card p-3 shadow-md shadow-border">
           <div className="flex flex-shrink-0 items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cast</p>
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide">Cast</p>
             {castIds.length > 0 && (
               <button
                 type="button"
@@ -230,17 +238,20 @@ function WritePageContent() {
                   setCastIds([]);
                   applyCastParam([]);
                 }}
-                className="text-[11px] text-zinc-500 transition-colors hover:text-yellow-400"
+                className="text-xs text-muted hover:text-accent cursor-pointer transition-colors"
               >
                 Clear
               </button>
             )}
           </div>
 
-          <div className="flex-shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2 text-[11px] leading-snug text-zinc-400">
-            {castIds.length === 0
-              ? "🎭 No cast selected"
-              : `🎭 ${castIds.length} character${castIds.length === 1 ? "" : "s"} selected`}
+          <div className="flex-shrink-0 rounded-lg px-2.5 py-2 text-xs leading-snug bg-accent/20 border border-accent">
+            <p className="flex items-center gap-1">
+              <SparklesIcon />
+              {castIds.length === 0
+                ? "No cast selected"
+                : `${castIds.length} character${castIds.length === 1 ? "" : "s"} selected`}
+            </p>
           </div>
 
           {castIds.length > 0 ? (
@@ -248,11 +259,11 @@ function WritePageContent() {
               {castIds.map((id) => {
                 const character = (characters ?? []).find((c) => c.id === id);
                 return (
-                  <div key={id} className="group/cast relative aspect-[2/3] rounded-lg bg-zinc-800">
+                  <div key={id} className="group/cast relative aspect-[2/3] rounded-lg bg-border">
                     {/* Clipping lives on the link, not the grid item — same reason as chat. */}
                     <Link
                       href={`/characters/${id}`}
-                      className="block h-full w-full overflow-hidden rounded-lg"
+                      className="block h-full w-full overflow-hidden rounded-lg shadow-sm shadow-border"
                     >
                       {character?.thumbnail ? (
                         <img
@@ -261,12 +272,12 @@ function WritePageContent() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900 px-1 text-center text-base font-black text-zinc-600">
+                        <div className="flex h-full w-full items-center justify-center px-1 text-center text-base font-black text-muted">
                           {character ? initials(character.name) : `#${id}`}
                         </div>
                       )}
-                      <div className="absolute inset-x-0 bottom-0 bg-zinc-950/80 p-1 opacity-0 transition-opacity group-hover/cast:opacity-100">
-                        <p className="line-clamp-2 text-[10px] font-medium leading-tight text-zinc-200">
+                      <div className="absolute inset-x-0 bottom-0 bg-card rounded-b-md p-1 opacity-0 transition-opacity group-hover/cast:opacity-100">
+                        <p className="line-clamp-2 text-xs font-medium leading-tight">
                           {character?.name ?? `#${id}`}
                         </p>
                       </div>
@@ -275,17 +286,17 @@ function WritePageContent() {
                       type="button"
                       onClick={() => toggleCast(id)}
                       aria-label={`Remove ${character?.name ?? `character ${id}`} from the cast`}
-                      className="absolute right-1 top-1 h-5 w-5 rounded-full bg-zinc-950/80 text-[11px] leading-5 text-zinc-300 opacity-0 transition-colors group-hover/cast:opacity-100 hover:bg-red-600 hover:text-white"
+                      className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover/cast:opacity-100 transition-colors flex items-center justify-center bg-card shadow-xs shadow-border cursor-pointer hover:bg-red-500 hover:text-background"
                     >
-                      ✕
+                      <ClearIcon className="w-3 h-3" />
                     </button>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="min-h-0 flex-1 rounded-lg border border-dashed border-zinc-800 px-2 py-4 text-center">
-              <p className="text-[11px] leading-relaxed text-zinc-500">
+            <div className="min-h-0 flex-1 rounded-lg border border-dashed border-muted px-2 py-4 text-center">
+              <p className="text-xs text-muted leading-relaxed">
                 No characters selected.
                 <br />
                 Add one below to start writing.
@@ -294,11 +305,11 @@ function WritePageContent() {
           )}
 
           {/* Add characters — the collapsible equivalent of chat's "+ Add books" */}
-          <div className="flex min-h-0 flex-shrink-0 flex-col gap-2 border-t border-zinc-800 pt-2">
+          <div className="flex min-h-0 flex-shrink-0 flex-col gap-2 pt-2">
             <button
               type="button"
               onClick={() => setPickerOpen((open) => !open)}
-              className="w-full rounded-lg bg-zinc-800 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:bg-zinc-700"
+              className="w-full py-1.5 rounded-lg text-xs font-semibold bg-background shadow-sm shadow-border text-muted hover:cursor-pointer hover:bg-highlight hover:text-card transition-colors"
             >
               {pickerOpen ? "− Close picker" : "+ Add characters"}
             </button>
@@ -310,7 +321,7 @@ function WritePageContent() {
                   value={pickerQuery}
                   onChange={(e) => setPickerQuery(e.target.value)}
                   placeholder="Search characters…"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40"
+                  className="w-full bg-card shadow-sm shadow-border rounded-lg px-2.5 py-1.5 text-xs placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent"
                 />
                 <div className="max-h-[180px] space-y-0.5 overflow-y-auto">
                   {pickable.map((character) => {
@@ -318,36 +329,36 @@ function WritePageContent() {
                     return (
                       <label
                         key={character.id}
-                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-zinc-800/60"
+                        className="flex items-center gap-2 py-1 cursor-pointer hover:ring-2 hover:ring-accent mx-2.5 my-1 rounded"
                       >
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleCast(character.id)}
-                          className="flex-shrink-0 accent-yellow-500"
+                          className="flex-shrink-0 accent-accent"
                         />
-                        <span className="h-7 w-5 flex-shrink-0 overflow-hidden rounded bg-zinc-800">
+                        <span className="h-7 w-5 flex-shrink-0 overflow-hidden rounded bg-muted">
                           {character.thumbnail ? (
                             <img src={character.thumbnail} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <span className="flex h-full w-full items-center justify-center text-[7px] font-bold text-zinc-600">
+                            <span className="flex h-full w-full items-center justify-center text-[7px] font-bold text-background">
                               {initials(character.name)}
                             </span>
                           )}
                         </span>
-                        <span className="line-clamp-2 text-[11px] leading-tight text-zinc-300">
+                        <span className="line-clamp-2 text-xs leading-tight">
                           {character.name}
                         </span>
                       </label>
                     );
                   })}
                   {pickable.length === 0 && (
-                    <p className="px-1 py-2 text-[11px] text-zinc-600">
+                    <p className="px-1 py-2 text-xs text-muted">
                       {characters ? "No characters match." : "Loading…"}
                     </p>
                   )}
                 </div>
-                <p className="text-[10px] leading-snug text-zinc-600">
+                <p className="text-xs leading-tight">
                   Up to 5 characters get their full profile; beyond that the cast is condensed.
                 </p>
               </div>
@@ -355,9 +366,9 @@ function WritePageContent() {
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-background shadow-sm shadow-border">
           {genres.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-shrink-0 flex-wrap gap-1.5 px-6 pt-4">
               {genres.map((name) => {
                 const color = settings?.genre_colors?.[name] ?? "#eab308";
                 const active = genre === name;
@@ -368,10 +379,10 @@ function WritePageContent() {
                     onClick={() => setGenre(active ? "" : name)}
                     style={
                       active
-                        ? { backgroundColor: color, borderColor: color, color: "#18181b" }
+                        ? { backgroundColor: color, borderColor: color, color: "#000000" }
                         : { borderColor: `${color}66`, color }
                     }
-                    className="rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors"
+                    className="rounded-full border px-3 py-1 text-xs font-semibold transition-colors cursor-pointer"
                   >
                     {name}
                   </button>
@@ -380,20 +391,20 @@ function WritePageContent() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             {/* Same message layout as the chat page: a right-aligned brief, then
                 the reply in a thin-bordered container. */}
             {earlierTurns.map((turn, i) =>
               turn.role === "user" ? (
                 <div key={i} className="flex flex-col">
-                  <div className="self-end rounded-lg border border-yellow-600/40 bg-yellow-600/30 px-4 py-2 text-sm text-zinc-100">
+                  <div className="self-end rounded-lg px-4 py-2 text-sm bg-accent/20 border border-accent">
                     {turn.content}
                   </div>
                 </div>
               ) : (
                 <div key={i} className="flex flex-col">
                   <div className="w-3/4 space-y-2 self-start">
-                    <div className="whitespace-pre-wrap rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm leading-relaxed text-zinc-300">
+                    <div className="whitespace-pre-wrap rounded-lg bg-card shadow-md shadow-border p-4 text-sm leading-relaxed">
                       {turn.content}
                     </div>
                     {renderSaveButton(i)}
@@ -405,7 +416,7 @@ function WritePageContent() {
             {scene && (
               <div className="flex flex-col">
                 <div className="w-3/4 space-y-2 self-start">
-                  <div className="whitespace-pre-wrap rounded-lg border border-zinc-700/70 bg-zinc-800/60 p-4 text-sm leading-relaxed text-zinc-100">
+                  <div className="whitespace-pre-wrap rounded-lg bg-card shadow-md shadow-border p-4 text-sm leading-relaxed">
                     {scene}
                   </div>
                   {/* Only a finished scene is saveable — the last turn is still
@@ -422,7 +433,7 @@ function WritePageContent() {
                           type="button"
                           onClick={() => send(beat)}
                           title={beat}
-                          className="flex min-h-7 max-w-full items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-left text-[11px] leading-snug text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-300"
+                          className="flex min-h-7 max-w-full items-center rounded-full shadow-xs shadow-border bg-card px-3 py-1 text-left text-xs leading-snug text-muted cursor-pointer transition-colors hover:bg-highlight hover:text-card"
                         >
                           {beat}
                         </button>
@@ -437,7 +448,7 @@ function WritePageContent() {
                           disabled={regenerating}
                           aria-busy={regenerating}
                           aria-label={regenerating ? "Generating suggestions" : "Regenerate suggestions"}
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800/60 text-[11px] text-zinc-400 transition-colors hover:text-zinc-200 disabled:cursor-wait disabled:text-yellow-400"
+                          className="flex h-7 w-7 items-center justify-center rounded-full shadow-xs shadow-border bg-card text-xs text-muted cursor-pointer transition-colors hover:bg-highlight hover:text-card disabled:cursor-wait"
                         >
                           <span
                             aria-hidden
@@ -454,7 +465,7 @@ function WritePageContent() {
             )}
 
             {pending && !scene && (
-              <p className="animate-pulse text-sm text-zinc-500">
+              <p className="animate-pulse text-sm text-muted">
                 {thinking ? "Thinking…" : "Writing…"}
               </p>
             )}
@@ -466,14 +477,14 @@ function WritePageContent() {
                     Hi! Cast a character or two, then describe the scene — a setting, a
                     tension, who speaks first.
                   </p>
-                  <p className="text-xs text-zinc-600">
+                  <p className="text-xs">
                     Every reply is <strong>third person, past tense</strong>, 500 words or fewer.
                   </p>
                 </>
               </ThreadEmpty>
             )}
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-500">{error}</p>}
           </div>
 
           <form
@@ -482,20 +493,20 @@ function WritePageContent() {
               send(draft);
               setDraft("");
             }}
-            className="flex flex-shrink-0 gap-2"
+            className="flex w-full flex-shrink-0 gap-2 p-4"
           >
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder={cast.length ? "What happens next?" : "Pick a cast first…"}
               disabled={cast.length === 0 || pending}
-              className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-lg px-4 py-4 text-sm placeholder-muted focus:outline-none bg-card shadow-sm shadow-border focus:ring-2 focus:ring-accent disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={cast.length === 0 || pending || !draft.trim() || (needsGenre && !genre)}
               title={needsGenre && !genre ? "Pick a genre first" : undefined}
-              className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-500 disabled:opacity-40"
+              className="disabled:opacity-30 disabled:cursor-not-allowed transition-colors px-6 py-2.5 rounded-lg text-sm font-semibold cursor-pointer bg-card hover:bg-highlight hover:text-background"
             >
               Write
             </button>

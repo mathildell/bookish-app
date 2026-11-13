@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
  */
 export default function ThreadEmpty({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center text-sm leading-relaxed text-zinc-500 [&_strong]:font-semibold [&_strong]:text-zinc-300">
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center text-sm leading-relaxed text-muted [&_strong]:font-semibold [&_strong]:text-foreground">
       <div className="max-w-md space-y-2">{children}</div>
     </div>
   );

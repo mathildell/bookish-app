@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import ListSection, { LIST_ICON, type ListSectionItem } from "@/components/ListSection";
+import { SparklesIcon } from "@/components/icons";
 import {
   createCharacterList,
   deleteCharacterList,
@@ -53,18 +54,18 @@ export default function CharacterListSidebar({
             title={`Write a scene with the ${list.ids.length} character${
               list.ids.length === 1 ? "" : "s"
             } in "${list.name}"`}
-            className={`${LIST_ICON} text-zinc-400 hover:border-zinc-600 hover:text-yellow-400`}
+            className={LIST_ICON}
           >
-            ✨
+            <SparklesIcon />
           </Link>
         ) : (
           <button
             type="button"
             disabled
             title="This list has no characters yet"
-            className={`${LIST_ICON} cursor-not-allowed text-zinc-600 opacity-40`}
+            className={`${LIST_ICON} cursor-not-allowed`}
           >
-            ✨
+            <SparklesIcon />
           </button>
         )
       }
