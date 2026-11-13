@@ -327,12 +327,12 @@ export default function CharacterDetailPage() {
     },
   });
 
-  if (isLoading) return <div className="py-8 text-zinc-500">Loading profile…</div>;
+  if (isLoading) return <div className="py-8 text-muted">Loading profile…</div>;
   if (isError || !character) {
     return (
-      <div className="space-y-3 py-16 text-center text-zinc-500">
+      <div className="space-y-3 py-16 text-center text-muted">
         <p>That character doesn&apos;t exist (it may have been deleted).</p>
-        <Link href="/characters" className="text-yellow-500 hover:text-yellow-400">
+        <Link href="/characters" className="text-highlight hover:text-accent">
           ← All characters
         </Link>
       </div>
@@ -695,13 +695,13 @@ export default function CharacterDetailPage() {
               <Section title="Appearance">
                 <Prose text={character.appearance.signature} />
                 {character.appearance.presentation && (
-                  <p className="text-sm text-zinc-400">{character.appearance.presentation}</p>
+                  <p className="text-sm text-muted">{character.appearance.presentation}</p>
                 )}
               </Section>
 
               <Section title="Relationship patterns">
                 {character.relationships.length === 0 ? (
-                  <p className="text-sm italic text-zinc-600">None recorded.</p>
+                  <p className="text-sm italic text-muted">None recorded.</p>
                 ) : (
                   <ul className="space-y-2">
                     {character.relationships.map((rel, index) => (

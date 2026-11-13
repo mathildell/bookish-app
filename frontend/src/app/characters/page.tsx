@@ -36,6 +36,7 @@ export default function CharactersPage() {
   const [query, setQuery] = useState("");
   // Membership filter over a character list — unrelated to book lists.
   const [listId, setListId] = useState<number | null>(null);
+  const [role, setRole] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [listMenuOpen, setListMenuOpen] = useState(false);
 
@@ -91,11 +92,19 @@ export default function CharactersPage() {
   const activeList = lists?.find((l) => l.id === listId);
 
   const visible = useMemo(() => {
-    const all = characters ?? [];
+    let all = characters ?? [];
+    if (role) all = all.filter((character) => (character.role ?? "") === role);
     if (!activeList) return all;
     const members = new Set(activeList.character_ids);
     return all.filter((character) => members.has(character.id));
-  }, [characters, activeList]);
+  }, [characters, activeList, role]);
+
+  // Roles come from the data (the extractor's vocabulary can grow), taken from the
+  // unfiltered set so picking one doesn't empty the dropdown.
+  const roles = useMemo(
+    () => [...new Set((allCharacters ?? []).map((c) => c.role).filter((r): r is string => Boolean(r)))].sort(),
+    [allCharacters]
+  );
 
   const selectedLabel = `${selectedIds.length} character${selectedIds.length !== 1 ? "s" : ""}`;
 
@@ -150,6 +159,20 @@ export default function CharactersPage() {
             </button>
           </section>
 
+          <section>
+            <label className="text-xs font-semibold uppercase text-muted mb-1 block">Role</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full rounded-md px-3 py-2 text-sm capitalize bg-card shadow-sm shadow-border focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">All roles</option>
+              {roles.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </section>
+
           <CharacterListSidebar
             characters={allCharacters ?? []}
             activeListId={listId}
@@ -185,8 +208,8 @@ export default function CharactersPage() {
               ) : (
                 <>
                   <p className="text-sm">
-                    {query
-                      ? "No profiles match that search."
+                    {query || role
+                      ? "No profiles match those filters."
                       : "No character profiles yet. Extract them from your indexed books to get started."}
                   </p>
                   <Link href="/" className="inline-block text-xs text-foreground hover:text-highlight">
