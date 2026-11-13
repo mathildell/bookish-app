@@ -196,6 +196,8 @@ function ExtractContent() {
         if (event.kind === "started") {
           setProgress(`Profiling ${event.name}…`);
           setRowState((prev) => ({ ...prev, [event.name]: "running" }));
+        } else if (event.kind === "progress") {
+          setProgress(`${event.name}: ${event.message}`);
         } else if (event.kind === "ok") {
           setRowState((prev) => ({ ...prev, [event.name]: "ok" }));
           setSavedIds((prev) => ({ ...prev, [event.name]: event.character.id }));
@@ -219,11 +221,11 @@ function ExtractContent() {
   return (
     <div className="space-y-6 pt-5 pb-16">
       <header className="space-y-1">
-        <Link href="/" className="text-xs text-zinc-500 hover:text-yellow-400">
+        <Link href="/" className="text-xs text-muted hover:text-highlight">
           ← Library
         </Link>
         <h1 className="text-2xl font-bold tracking-tight">Extract characters</h1>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           Analysing {bookIds.length} book{bookIds.length === 1 ? "" : "s"} — the whole body of
           work at once, so a series is read as one story.
         </p>
@@ -231,22 +233,22 @@ function ExtractContent() {
 
       {/* Orientation notes: the model's reading of the cast is fallible and the user
           often knows better. These notes outrank its inferences. */}
-      <section className="rounded-xl border border-zinc-800 bg-zinc-900/40">
+      <section className="rounded-xl bg-card/60 shadow-sm shadow-border">
         <button
           type="button"
           onClick={() => setGuidanceOpen((v) => !v)}
-          className="flex w-full items-center justify-between px-4 py-3 text-left"
+          className="flex w-full items-center justify-between p-4 text-left"
         >
-          <span className="text-sm font-medium text-zinc-200">
+          <span className="text-sm font-medium">
             Steer the model
-            {guidance.trim() && <span className="ml-2 text-[11px] text-yellow-500">notes active</span>}
+            {guidance.trim() && <span className="ml-2 text-xs bg-background py-1 px-2 rounded-sm">notes active</span>}
           </span>
-          <span className="text-xs text-zinc-500">{guidanceOpen ? "hide" : "show"}</span>
+          <span className="text-xs cursor-pointer hover:text-highlight">{guidanceOpen ? "hide" : "show"}</span>
         </button>
 
         {guidanceOpen && (
-          <div className="space-y-2 border-t border-zinc-800 px-4 py-3">
-            <p className="text-xs leading-relaxed text-zinc-500">
+          <div className="space-y-2 px-4 py-1">
+            <p className="text-xs leading-relaxed text-muted">
               Tell it what you know: who matters, who is not a character, and what each one
               really is. Names and roles from the user always win over its guesses.
             </p>
@@ -257,19 +259,19 @@ function ExtractContent() {
               placeholder={
                 "Laurent is the protagonist, Damen is the protagonist, Uncle is the antagonist.\nArles and Vere are places, not characters.\nThe Regent is Laurent's uncle — same person."
               }
-              className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-yellow-600 focus:outline-none"
+              className="w-full resize-none rounded-lg px-3 py-2 text-sm placeholder:text-muted bg-background shadow-xs focus:ring-2 focus:ring-accent focus:outline-none"
             />
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] text-zinc-600">
+              <p className="text-xs text-muted">
                 Applied to the cast list and to every profile.
               </p>
               <button
                 type="button"
                 onClick={() => void runDiscovery(guidance)}
                 disabled={busy || !guidance.trim()}
-                className="rounded-lg border border-yellow-700/60 bg-yellow-600/10 px-3 py-1.5 text-sm font-medium text-yellow-400 transition-colors hover:bg-yellow-600/20 disabled:opacity-40"
+                className="rounded-lg mb-2 px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-highlight hover:text-background disabled:cursor-not-allowed disabled:bg-muted/20 disabled:text-muted"
               >
-                Re-read with these notes
+                Re-generate with these notes
               </button>
             </div>
           </div>
@@ -283,9 +285,9 @@ function ExtractContent() {
       )}
 
       {busy && (
-        <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3">
-          <p className="flex items-center gap-2 text-sm text-zinc-300">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-600 border-t-yellow-400" />
+        <div className="space-y-2 rounded-lg bg-card shadow-sm shadow-border p-4">
+          <p className="flex items-center gap-2 text-sm text-muted">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted border-t-highlight" />
             {progress}
           </p>
         </div>
@@ -295,25 +297,21 @@ function ExtractContent() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs uppercase tracking-wider text-zinc-500">
+              <p className="text-xs uppercase tracking-wider text-muted">
                 {visible.length} candidate{visible.length === 1 ? "" : "s"} · {chosen.length} selected
               </p>
-              <div className="flex items-center gap-1 text-[11px]">
+              <div className="flex items-center gap-1 text-xs">
                 <button
                   type="button"
-                  onClick={selectAll}
+                  onClick={chosen.length == visible.length ? clearAll : selectAll}
                   disabled={busy || visible.length === 0}
-                  className="rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-400 disabled:opacity-40"
+                  className="px-3 py-1 rounded-full text-xs transition-colors bg-card hover:bg-highlight hover:text-background cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Select all
-                </button>
-                <button
-                  type="button"
-                  onClick={clearAll}
-                  disabled={busy || visible.length === 0}
-                  className="rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-400 disabled:opacity-40"
-                >
-                  Unselect all
+                  {chosen.length == visible.length ? (
+                    <>Unselect all</>
+                  ) : (
+                    <>Select all</>
+                  )}
                 </button>
               </div>
             </div>
@@ -326,7 +324,7 @@ function ExtractContent() {
                 type="button"
                 onClick={handleGenerate}
                 disabled={chosen.length === 0 || busy}
-                className="rounded-lg bg-yellow-600 px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-500 disabled:opacity-40"
+                className="rounded-lg px-3 py-2 text-sm font-semibold transition-colors cursor-pointer bg-card shadow-sm shadow-border hover:bg-highlight hover:text-background disabled:cursor-not-allowed disabled:bg-muted/20 disabled:text-muted"
               >
                 Generate {chosen.length || ""} profile{chosen.length === 1 ? "" : "s"}
               </button>
@@ -334,6 +332,130 @@ function ExtractContent() {
           </div>
 
           {runError && <p className="text-sm text-red-400">{runError}</p>}
+
+          <ul className="overflow-hidden">
+            {visible.map((candidate) => {
+              const state = rowState[candidate.name] ?? "idle";
+              const disabled = candidate.already_extracted || phase === "generating";
+              const savedId = savedIds[candidate.name];
+
+              return (
+                <li key={candidate.name} className="flex items-start gap-3 bg-card px-4 py-3 mb-2 rounded-lg shadow-sm shadow-border">
+                  <button
+                    type="button"
+                    onClick={() => !disabled && toggle(candidate.name)}
+                    disabled={disabled}
+                    aria-label={`Select ${candidate.name}`}
+                    className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md transition-colors cursor-pointer ${
+                      candidate.already_extracted
+                        ? "cursor-not-allowed bg-muted/80s opacity-60"
+                        : selected[candidate.name]
+                          ? "bg-highlight"
+                          : "bg-muted/40 hover:ring-2 hover:ring-accent"
+                    }`}
+                  >
+                    <CheckIcon
+                      className={`h-5 w-5 ${selected[candidate.name] && !candidate.already_extracted ? "text-accent" : "text-transparent"}`}
+                    />
+                  </button>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{candidate.name}</p>
+                      <select
+                        value={candidate.role ?? ""}
+                        onChange={(e) => setRole(candidate.name, e.target.value)}
+                        disabled={disabled}
+                        aria-label={`Role for ${candidate.name}`}
+                        className={`rounded-full bg-background px-2 py-0.5 text-xs capitalize focus:border-yellow-600 focus:ring-2 focus:ring-accent cursor-pointer disabled:opacity-50`}
+                      >
+                        <option value="">role?</option>
+                        {ROLES.map((role) => (
+                          <option key={role} value={role} className="capitalize">
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                      {candidate.aliases.length > 0 && (
+                        <span className="text-xs text-muted">a.k.a <i>{candidate.aliases.join(", ")}</i></span>
+                      )}
+                      {candidate.already_extracted && (
+                        <span className="text-xs text-muted">· already profiled</span>
+                      )}
+                      {candidate.possible_duplicate && (
+                        <span className="rounded-full bg-red-900/50 px-2 py-0.5 text-xs text-red-200">
+                          possible duplicate
+                        </span>
+                      )}
+                    </div>
+                    {candidate.description && (
+                      <p className="mt-0.5 text-xs leading-snug text-muted">{candidate.description}</p>
+                    )}
+                    {rowError[candidate.name] && (
+                      <p className="mt-1 text-xs text-red-400">{rowError[candidate.name]}</p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-shrink-0 items-center gap-3 text-xs">
+                    {candidate.already_extracted && candidate.existing_id && (
+                      <Link
+                        href={`/characters/${candidate.existing_id}`}
+                        className="text-highlight hover:text-accent"
+                      >
+                        View profile
+                      </Link>
+                    )}
+                    {savedId && (
+                      <Link href={`/characters/${savedId}`} className="text-green-400 hover:text-green-300">
+                        Open →
+                      </Link>
+                    )}
+                    {state === "running" && <span className="text-orange-400">profiling…</span>}
+                    {state === "queued" && <span className="text-muted">queued</span>}
+                    {state === "ok" && <span className="text-green-400">✓</span>}
+                    {state === "error" && <span className="text-red-400">failed</span>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {(minorCount > 0 || filtered.length > 0) && (
+            <p className="text-xs text-muted">
+              {minorCount > 0 && (
+                <>
+                  {minorCount} minor character{minorCount === 1 ? "" : "s"} — named in passing or not
+                  relevant to the plot — {showMinor ? "shown" : "hidden"}.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setShowMinor((v) => !v)}
+                    className="text-highlight underline-offset-2 hover:text-accent cursor-pointer"
+                  >
+                    {showMinor ? "Hide them" : "Show them"}
+                  </button>
+                  {filtered.length > 0 && (
+                    <br/>
+                  )}
+                </>
+              )}
+              {filtered.length > 0 && (
+                <>
+                  Ignored {filtered.length} non-character entr
+                  {filtered.length === 1 ? "y" : "ies"}:{" "}
+                  {filtered
+                    .slice(0, 8)
+                    .map((f) => `${f.name} (${f.kind})`)
+                    .join(", ")}
+                  {filtered.length > 8 ? "…" : ""} — add one above if it is a person after all.
+                </>
+              )}
+            </p>
+          )}
+
+          {filtered.length > 0 && (
+            <p className="text-xs leading-relaxed text-muted">
+              </p>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -346,132 +468,17 @@ function ExtractContent() {
                 }
               }}
               placeholder="Add a name it missed…"
-              className="min-w-[14rem] flex-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-yellow-600 focus:outline-none"
+              className="min-w-[14rem] flex-1 bg-card border border-border rounded-lg px-4 py-2 text-xs text-foreground placeholder-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
             />
             <button
               type="button"
               onClick={addManual}
               disabled={!manualName.trim() || busy}
-              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-yellow-600 hover:text-yellow-400 disabled:opacity-40"
+              className="rounded-lg px-3 py-1.5 bg-card cursor-pointer text-sm transition-colors hover:text-background hover:bg-highlight disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Add
+              + Add
             </button>
           </div>
-
-          <ul className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
-            {visible.map((candidate) => {
-              const state = rowState[candidate.name] ?? "idle";
-              const disabled = candidate.already_extracted || phase === "generating";
-              const savedId = savedIds[candidate.name];
-
-              return (
-                <li key={candidate.name} className="flex items-start gap-3 bg-zinc-900/40 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => !disabled && toggle(candidate.name)}
-                    disabled={disabled}
-                    aria-label={`Select ${candidate.name}`}
-                    className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
-                      candidate.already_extracted
-                        ? "cursor-not-allowed border border-zinc-700 bg-zinc-800/60 opacity-60"
-                        : selected[candidate.name]
-                          ? "bg-yellow-500"
-                          : "border border-zinc-600 bg-zinc-900 hover:border-yellow-500"
-                    }`}
-                  >
-                    <CheckIcon
-                      className={`h-[11px] w-[11px] ${selected[candidate.name] && !candidate.already_extracted ? "text-zinc-900" : "text-transparent"}`}
-                    />
-                  </button>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-zinc-100">{candidate.name}</p>
-                      <select
-                        value={candidate.role ?? ""}
-                        onChange={(e) => setRole(candidate.name, e.target.value)}
-                        disabled={disabled}
-                        aria-label={`Role for ${candidate.name}`}
-                        className={`rounded-full border border-zinc-700 bg-zinc-800/80 px-2 py-0.5 text-[10px] capitalize text-zinc-300 focus:border-yellow-600 focus:outline-none disabled:opacity-50 ${
-                          candidate.role ? "" : "text-zinc-500"
-                        }`}
-                      >
-                        <option value="">role?</option>
-                        {ROLES.map((role) => (
-                          <option key={role} value={role} className="capitalize">
-                            {role}
-                          </option>
-                        ))}
-                      </select>
-                      {candidate.aliases.length > 0 && (
-                        <span className="text-[11px] text-zinc-500">aka {candidate.aliases.join(", ")}</span>
-                      )}
-                      {candidate.already_extracted && (
-                        <span className="text-[11px] text-zinc-500">· already profiled</span>
-                      )}
-                      {candidate.possible_duplicate && (
-                        <span className="rounded-full bg-red-900/50 px-2 py-0.5 text-[10px] text-red-200">
-                          possible duplicate
-                        </span>
-                      )}
-                    </div>
-                    {candidate.description && (
-                      <p className="mt-0.5 text-xs leading-snug text-zinc-400">{candidate.description}</p>
-                    )}
-                    {rowError[candidate.name] && (
-                      <p className="mt-1 text-[11px] text-red-400">{rowError[candidate.name]}</p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-shrink-0 items-center gap-3 text-[11px]">
-                    {candidate.already_extracted && candidate.existing_id && (
-                      <Link
-                        href={`/characters/${candidate.existing_id}`}
-                        className="text-yellow-500 hover:text-yellow-400"
-                      >
-                        View profile
-                      </Link>
-                    )}
-                    {savedId && (
-                      <Link href={`/characters/${savedId}`} className="text-green-400 hover:text-green-300">
-                        Open →
-                      </Link>
-                    )}
-                    {state === "running" && <span className="text-yellow-400">profiling…</span>}
-                    {state === "queued" && <span className="text-zinc-600">queued</span>}
-                    {state === "ok" && <span className="text-green-400">✓</span>}
-                    {state === "error" && <span className="text-red-400">failed</span>}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          {minorCount > 0 && (
-            <p className="text-[11px] text-zinc-600">
-              {minorCount} minor character{minorCount === 1 ? "" : "s"} — named in passing or not
-              relevant to the plot — {showMinor ? "shown" : "hidden"}.{" "}
-              <button
-                type="button"
-                onClick={() => setShowMinor((v) => !v)}
-                className="text-yellow-600 underline-offset-2 hover:text-yellow-400 hover:underline"
-              >
-                {showMinor ? "Hide them" : "Show them"}
-              </button>
-            </p>
-          )}
-
-          {filtered.length > 0 && (
-            <p className="text-[11px] leading-relaxed text-zinc-600">
-              Ignored {filtered.length} non-character entr
-              {filtered.length === 1 ? "y" : "ies"}:{" "}
-              {filtered
-                .slice(0, 8)
-                .map((f) => `${f.name} (${f.kind})`)
-                .join(", ")}
-              {filtered.length > 8 ? "…" : ""} — add one above if it is a person after all.
-            </p>
-          )}
 
           <div className="flex justify-end pt-2">
             <Link href="/characters" className="text-sm text-yellow-500 hover:text-yellow-400">

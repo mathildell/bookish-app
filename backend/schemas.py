@@ -211,6 +211,8 @@ class CharacterCreate(BaseModel):
     formative_experience: Optional[str] = None
     arc_pattern: Optional[str] = None
     situational_anchors: list[str] = []
+    # Profile fields the user edited by hand; regeneration and refine keep them.
+    locked_fields: list[str] = []
     thumbnail: Optional[str] = None
     status: str = "complete"
     error: Optional[str] = None
@@ -218,9 +220,21 @@ class CharacterCreate(BaseModel):
     source_book_ids: list[int] = []
 
 
+class CharacterEvidence(BaseModel):
+    """How much of the text stands behind a generated profile."""
+    observations: int = 0
+    chapters: int = 0
+    passages: int = 0
+    themes: int = 0
+    established: int = 0
+    passes: int = 0
+    updated_at: Optional[str] = None
+
+
 class Character(CharacterCreate):
     """A stored profile."""
     id: int
+    evidence: Optional[CharacterEvidence] = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -244,6 +258,7 @@ class CharacterUpdate(BaseModel):
     formative_experience: Optional[str] = None
     arc_pattern: Optional[str] = None
     situational_anchors: Optional[list[str]] = None
+    locked_fields: Optional[list[str]] = None
     thumbnail: Optional[str] = None
     status: Optional[str] = None
     error: Optional[str] = None
@@ -288,6 +303,11 @@ class ProfileCandidate(BaseModel):
     role: Optional[str] = None
     description: Optional[str] = None
     calibre_ids: list[int] = []
+
+
+class RefineRequest(BaseModel):
+    """Another pass over a saved profile; optional notes steer it."""
+    guidance: str = ""
 
 
 class ProfilesRequest(BaseModel):

@@ -114,33 +114,47 @@ gets its own options rather than reusing that constant.
 
 ## Extraction pipeline
 
-### Phase A — discovery (light, one LLM call per book)
+### Why the pipeline was rebuilt (Nov 2026)
 
-Sample ~24–40 chunks spread across the book's chapters via
-`ChatEngine.retrieve_chunks(..., calibre_ids=[cid])`, prompt for named characters only,
-JSON out at temperature 0.2:
+The first version sampled 12 chunks × 700 characters per book and asked the model to
+find the cast in them. With a 27B model it still mixed people up with places, gave one
+character another's motives, and listed people thanked in the Acknowledgements. Those
+are pipeline faults, not model faults: the model saw ~2% of the book, including front
+and back matter, and was asked to both *find* and *judge* names from it. The rebuild
+moves everything measurable into code (`lib/book_text.py`) and gives the model only
+narrow, checkable jobs.
 
-```jsonc
-[{ "name": "Kvothe", "aliases": ["Kote", "the Bloodless"],
-   "role": "protagonist",
-   "description": "A gifted musician and arcanist remembered as a legend he insists he never was." }]
-```
+### Story text only (`lib/book_text.py`)
 
-Only indexed books can be analysed — retrieval is the evidence source.
+Chunks are re-read in order from Chroma and grouped by EPUB section. A section is
+dropped as matter when its first short line is a matter heading (Contents,
+Acknowledgements, About the Author, Also by, Copyright, Dedication, Afterword, Author's
+note, Trigger warning, Newsletter, Excerpt…), or — only in the outer 20% of the book —
+when its file name says so (`…_ack_r1.htm`), its opening has matter phrases ("All rights
+reserved", "Thanks to", "www."), or it is short with no dialogue. A "Characters" /
+"Dramatis personae" page is kept aside as a cast list. Drop caps split by the ingestor
+("L\noth sighed") are rejoined.
 
-### Keeping places out of the cast
+### Phase A — discovery (one LLM call per selection)
 
-Sampled prose names places as often as people, so the first version returned cities and
-factions as characters. Two defences, both in the prompt plus code:
+1. **Count.** Every capitalised word that is capitalised mid-sentence and rarely
+   lower-case is a name. For each: mentions, chapters spanned, how often it sits next to
+   a speech verb ("speaks"), next to person verbs/body parts/honorifics ("acts"), and
+   after in/at/from ("place"). One token pass, ~0.4s for a trilogy.
+2. **Shortlist.** The 40 most frequent names present in ≥2 chapters, plus names the
+   user typed in guidance and cast-list names with ≥10 mentions. Ranking comes first so
+   a 70-name cast list cannot crowd out the villain.
+3. **Classify.** The model gets each name's counts and 3 short passages (6 for title
+   words like "Regent") and returns `kind` (person / group / place / title / object /
+   other), `same_as` (nickname/surname links), `role` and a one-line description, under
+   an Ollama JSON schema. It can only classify names the text contains.
+4. **Code decides prominence.** Links are merged unless they join a title or the cast
+   list separates them. Roles are clamped by share of the lead's mentions: under 3% (or
+   <8 mentions) is `minor`; a "protagonist" under 15% is `supporting`; a "minor" over 5%
+   is `supporting`. Names the user mentions in guidance are exempt.
 
-- The **PERSON test** is stated as a rule the model must apply: an individual, or a named
-group that acts as one. Places, houses, ships, objects, factions, prophecies and magic
-systems fail it. The usable heuristic given to the model: *could an actor play it on a
-stage?*
-- The model must still **list** anything that fails the test, labelled with `kind`
-  (`person` / `place` / `group` / `object` / `other`). Code then drops every non-`person`
-entry and reports the names back to the UI, so nothing is silently swallowed — the user
-can see that "Vere" was rejected and add it by hand if the model was wrong.
+Non-persons are returned as `filtered` with their kind, so the UI can show "Regent
+(title)" and the user can add it by hand.
 
 ### Roles describe function, not likability
 
@@ -165,8 +179,8 @@ them". `Re-read with these notes` re-runs discovery in place. Two more correctio
 in the candidate list itself: a role dropdown per row (fed straight into the profile),
 and an **Add a name** box for anyone the model missed.
 
-Interface: `discover(calibre_ids, titles, guidance)`, `discover_book(cid, guidance) ->
-(candidates, rejected)`, `build_profile(..., guidance)`, `stream_profiles(requests, guidance)`;
+Interface: `discover(calibre_ids, titles, guidance)`, `build_profile(..., guidance)`,
+`stream_profiles(requests, guidance)`;
 `DiscoverRequest`/`ProfilesRequest` gain `guidance: str = ""`.
 
 Results are merged across books in code (which gives `source_book_ids` for free) and each
@@ -176,7 +190,8 @@ Matches are **disabled in the UI**, not hidden, with a link to the profile and a
 
 ### Nickname handling
 
-Everything is one body of work, so only name matching can split a character. Normalise
+Within a selection, nicknames are linked by `same_as` in discovery (above). Against the
+saved library, only name matching can split a character. Normalise
 before comparing: lowercase, strip punctuation, leading articles (`the`, `a`) **and**
 honorifics (`mr|mrs|ms|miss|lady|lord|sir|dr`).
 
@@ -184,29 +199,72 @@ honorifics (`mr|mrs|ms|miss|lady|lord|sir|dr`).
 - candidate whose alias collides with a *different* character → do **not** merge; flag as
   "possible duplicate"
 
-### Phase B — deep profile (one synthesis call per character)
+### Phase B — deep profile (observe → group → tier → synthesise → check)
 
-Evidence gathering needs no model: run a fixed query set through `retrieve_chunks`
-against **every book in the run's selection** — the name, each alias, appearance,
-felt/wanted, dialogue (`<name> said`), and each relationship — dedupe by chunk id, cap
-at ~20–24k characters, label each excerpt `[cid:<id> - <title> - <chapter>]`.
+The first rebuild still let one vivid line dominate: Laurent's sheet repeated a
+"worsening cruelty" that came from a single, guarded self-description in book 1, and
+his arc said he never outgrew it. The quote check proved the line *existed*, not that
+it was *true of him*. The fix is to measure support and attribution, not just existence.
 
-> **Pitfall: `source_book_ids` is a discovery artifact, not a fact about the text.**
-> Discovery reads 12 windows of ~700 characters per book, so a minor character is only
-> recorded for the books whose windows happened to name them. Profiling from those
-> sources alone silently narrows the evidence: Auguste was tagged with 2 of 3 books
-> while occurring 21 times in the third. `ProfilesRequest.calibre_ids` therefore carries
-> the whole selection and the router unions it with each candidate's own sources before
-> gathering evidence — and that union is what gets recorded, because it is what
-> informed the profile.
+Books are always processed in **reading order** (`_reading_order` in the router: series
+name, then series index), because the arc is built from it.
 
-One synthesis call then returns the full profile JSON, with the de-situation rules above
-and an explicit "only state what the excerpts support" guard, so appearance is never
-invented. Malformed JSON is repaired once, then stored as `status='failed'` with the raw
-error.
+1. **Evidence** (no model): every paragraph that names the character (case-sensitive).
+   Dialogue they speak ranks first, then paragraphs naming nobody else, then shared
+   scenes. The budget scales with how much text there is about them (`_BATCH_STEPS`:
+   2 batches for a walk-on up to 6 × 16k characters for a trilogy lead) and is **split
+   equally between books**, round-robin over chapters inside each book.
+2. **Observe** (one call per batch): each excerpt is labelled `[Book 2 · 40% through]`.
+   The model records aspect, note, verbatim quote and **source**: `shown` (narration
+   demonstrates it), `self` (their own words about themselves — guarded characters
+   misdescribe themselves) or `other` (someone's opinion, with `by`). Code finds each
+   quote in the batch, drops it if absent, and takes book, chapter and position from
+   the passage it was found in — location is measured, not reported.
+3. **Group** (one call): observations are clustered into themes (same quality, opposites
+   kept apart). Failure falls back to one theme per observation.
+4. **Tier** (code): per theme, distinct chapters, books, source mix and spread
+   (`B1:4 B2:0 B3:1`, or early/middle/late for one book).
+   - `self` — only their own words; `others` — mostly others' opinions;
+   - `moment` — fewer than 3 chapters (2 for characters seen in <10 chapters);
+   - `changes` — only in one book of several, or within a 35% stretch of one book;
+   - `established` — everything else.
+5. **Synthesise** (one call): themes are rendered by tier with their support. Only
+   `established` themes may become archetype, summary, traits, flaws, values, fears,
+   mannerisms or voice; `changes` go to `arc_pattern` as a movement; self-descriptions
+   need established backing; others' views feed relationships; moments never headline.
+   "One idea, one place" stops a quality repeating across fields.
+6. **Portability check**: as before (rewrite pass, then quarantine to anchors).
 
-Progress streams over SSE (`started / book / evidence / done / error`) so cards fill in
-one by one.
+Everything is saved in the `analysis` column: observations with locations, dialogue
+lines, fingerprints of passages read, theme tiers, pass count. The API exposes only a
+summary as `evidence`.
+
+### Refine
+
+`POST /api/characters/{id}/refine` (SSE, `{guidance}`): reads 3 more batches from
+passages no earlier pass used, least-covered chapters first; merges the new
+observations with the stored ones; regroups and re-tiers everything; then writes the
+sheet **afresh** from all of it. When everything has been read it re-weighs the stored
+evidence only. Profiles made before `analysis` existed get a full-size first pass.
+
+> **Pitfall: never show the model the previous sheet.** The first version passed it as
+> a draft to "review"; qwen3.6 returned it word for word (and its self-reported change
+> notes claimed edits it had not made). Nothing supported is lost by rewriting, because
+> the earlier observations are part of the evidence. The "what changed" list is a code
+> diff (`_revision_notes`), not model output.
+
+**Locks.** A hand edit (PATCH changing a generated field's value) adds that field to
+`locked_fields`. Refine is shown only the locked fields, to keep the rest consistent
+with them; the code then restores them verbatim, and both refine and re-profiling from the
+extract page skip locked fields when saving. Locks are shown on the profile page and
+removed by clicking them.
+
+`source_book_ids` caveat still applies: the router unions the whole selection into each
+candidate's sources before gathering evidence.
+
+The corpus and name statistics are cached per selection (3 entries).
+
+Progress streams over SSE (`started / progress / ok / error / done`).
 
 ## Creative writing
 

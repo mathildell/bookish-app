@@ -32,7 +32,7 @@ function ThinkingDots() {
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="relative flex h-4 w-4">
-        <span className="absolute inline-flex h-full w-full animate-spin rounded-full border-[2px] border-muted border-t-highlight" />
+        <span className="absolute inline-flex h-full w-full animate-spin rounded-full border-2 border-muted border-t-highlight" />
       </span>
       <span className="text-sm text-muted select-none">Searching{dots}</span>
     </div>

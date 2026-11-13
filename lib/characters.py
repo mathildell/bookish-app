@@ -29,8 +29,13 @@ _LIST_FIELDS = (
     "mannerisms",
     "relationships",
     "situational_anchors",
+    # Fields the user edited by hand; generation and refine leave them alone.
+    "locked_fields",
 )
-_DICT_FIELDS = ("motivations", "voice", "appearance")
+# `analysis` is the evidence behind a generated profile (observations with their
+# quotes and locations, passages already read). Refine builds on it; the API only
+# exposes a summary of it as `evidence`.
+_DICT_FIELDS = ("motivations", "voice", "appearance", "analysis")
 _JSON_FIELDS = _LIST_FIELDS + _DICT_FIELDS
 
 # Plain scalars.
@@ -72,6 +77,8 @@ CREATE TABLE IF NOT EXISTS characters (
     appearance    TEXT,
     relationships TEXT,
     situational_anchors TEXT,
+    locked_fields TEXT,
+    analysis      TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
@@ -160,6 +167,7 @@ class CharacterStore:
         self._conn.execute("PRAGMA foreign_keys = ON")
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -295,6 +303,13 @@ class CharacterStore:
     # Internals                                                          #
     # ------------------------------------------------------------------ #
 
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was created; callers hold `_lock`."""
+        present = {row[1] for row in self._conn.execute("PRAGMA table_info(characters)")}
+        for column in ("locked_fields", "analysis"):
+            if column not in present:
+                self._conn.execute(f'ALTER TABLE characters ADD COLUMN "{column}" TEXT')
+
     def _row(self, character_id: int) -> Optional[sqlite3.Row]:
         """The raw row; callers hold `_lock`."""
         return self._conn.execute(
@@ -328,6 +343,22 @@ class CharacterStore:
         data: dict[str, Any] = {key: row[key] for key in row.keys() if not key.startswith("_")}
         for field_name in _JSON_FIELDS:
             data[field_name] = _decode(field_name, data.get(field_name))
+
+        analysis = data.get("analysis") or {}
+        observations = analysis.get("observations") or []
+        data["evidence"] = (
+            {
+                "observations": len(observations),
+                "chapters": len({(o.get("book_id"), o.get("section")) for o in observations}),
+                "passages": len(analysis.get("used") or []),
+                "themes": len(analysis.get("themes") or []),
+                "established": sum(1 for t in analysis.get("themes") or [] if t.get("tier") == "established"),
+                "passes": int(analysis.get("passes") or 0),
+                "updated_at": analysis.get("updated_at"),
+            }
+            if observations
+            else None
+        )
 
         character_id = int(row["id"])
         data["aliases"] = [

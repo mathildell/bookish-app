@@ -145,7 +145,7 @@ export default function BookCard({ book, selectedId, onToggleSelect, indexing }:
       {busy && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/70">
           <span className="flex items-center gap-2 text-[11px] font-semibold text-zinc-100">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-yellow-400" />
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-highlight" />
             Indexing…
           </span>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,15 +8,79 @@ import {
   deleteCharacter,
   fetchBook,
   fetchCharacter,
+  refineCharacter,
   setCharacterListMembers,
   updateCharacter,
   useCharacterLists,
 } from "@/lib/api";
-import type { Character, CharacterInput } from "@/types/character";
+import type { Character, CharacterEvidence, CharacterInput } from "@/types/character";
+import { BookIcon, LockIcon, ClearIcon, TrashIcon, EditIcon, SparklesIcon } from "@/components/icons";
 
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+// Human names for the lockable fields, as the edit form labels them.
+const FIELD_LABELS: Record<string, string> = {
+  archetype: "Archetype",
+  summary: "Summary",
+  core_traits: "Core traits",
+  motivations: "Wants & needs",
+  fears: "Fears",
+  flaws: "Flaws",
+  values: "Values",
+  voice: "Voice",
+  mannerisms: "Mannerisms",
+  appearance: "Appearance",
+  relationships: "Relationship patterns",
+  formative_experience: "Formative experience",
+  arc_pattern: "Arc",
+  situational_anchors: "Situational anchors",
+};
+
+/** What the profile rests on, and the fields refine will leave alone. */
+function EvidencePanel({
+  evidence,
+  locked,
+  onUnlock,
+}: {
+  evidence?: CharacterEvidence | null;
+  locked: string[];
+  onUnlock: (field: string) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-xl p-3 text-xs bg-card shadow-sm shadow-border">
+      <p className="text-muted">Evidence</p>
+      {evidence ? (
+        <p>
+          {evidence.observations} quoted observations from {evidence.chapters} chapters, grouped into{" "}
+          {evidence.themes} themes ({evidence.established} established). {evidence.passages} passages read in{" "}
+          {evidence.passes} pass{evidence.passes === 1 ? "" : "es"}.
+        </p>
+      ) : (
+        <p className="italic text-muted">Made before evidence was recorded, refine to rebuild it.</p>
+      )}
+      {locked.length > 0 && (
+        <div>
+          <p className="text-muted">Locked fields</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {locked.map((field) => (
+              <button
+                key={field}
+                type="button"
+                onClick={() => onUnlock(field)}
+                title="Unlock: let refine and regeneration rewrite this field"
+                className="*max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2 cursor-pointer"
+              >
+                <LockIcon /> {FIELD_LABELS[field] ?? field} <ClearIcon />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LABEL = "text-xs font-semibold uppercase tracking-wider mb-2";
 const INPUT =
-  "w-full rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-yellow-500/40";
+  "w-full rounded-lg bg-background px-3 py-2 text-sm text-foreground placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent";
 
 function toLines(values: string[]) {
   return values.join("\n");
@@ -55,21 +119,21 @@ function SourceBooks({ ids }: { ids: number[] }) {
   });
 
   if (ids.length === 0) {
-    return <p className="italic text-zinc-600">None yet</p>;
+    return <p className="italic text-muted">None yet</p>;
   }
 
   const books = data ?? ids.map((id) => ({ id, title: `#${id}` }));
 
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
+    <div className="mt-1 flex flex-wrap items-center gap-1">
       {books.map(({ id, title }) => (
         <Link
           key={id}
           href={`/book/${id}`}
           title={`Calibre #${id}`}
-          className="max-w-full truncate rounded-full bg-zinc-800 px-2 py-0.5 text-zinc-300 hover:text-white"
+          className="max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2"
         >
-          📖 {title}
+          <BookIcon /> {title}
         </Link>
       ))}
     </div>
@@ -88,20 +152,20 @@ function CharacterLists({ characterId }: { characterId: number }) {
 
   if (!lists || lists.length === 0) {
     return (
-      <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] text-zinc-400">
-        <p className="text-zinc-500">Lists:</p>
-        <p className="italic text-zinc-600">No character lists yet — create one on the Characters page.</p>
+      <div className="space-y-2 rounded-xl text-xs bg-card shadow-sm shadow-border">
+        <p className="text-muted">Lists</p>
+        <p className="italic text-muted">No character lists yet — create one on the Characters page.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] text-zinc-400">
-      <p className="text-zinc-500">Lists:</p>
+    <div className="space-y-2 rounded-xl text-xs bg-card shadow-sm shadow-border p-3">
+      <p className="text-muted">Lists</p>
       {lists.map((list) => {
         const member = list.character_ids.includes(characterId);
         return (
-          <label key={list.id} className="flex items-center gap-2 text-zinc-300">
+          <label key={list.id} className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={member}
@@ -113,7 +177,7 @@ function CharacterLists({ characterId }: { characterId: number }) {
                     : [...list.character_ids, characterId],
                 })
               }
-              className="accent-yellow-500"
+              className="accent-accent"
             />
             <span className="min-w-0 truncate">{list.name}</span>
           </label>
@@ -125,10 +189,10 @@ function CharacterLists({ characterId }: { characterId: number }) {
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <section className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+    <section className="space-y-2 rounded-xl p-4 bg-card shadow-sm shadow-border">
       <div>
-        <h2 className="text-sm font-bold text-zinc-200">{title}</h2>
-        {hint && <p className="text-[11px] text-zinc-500">{hint}</p>}
+        <h2 className="font-bold">{title}</h2>
+        {hint && <p className="text-xs text-muted">{hint}</p>}
       </div>
       {children}
     </section>
@@ -140,7 +204,7 @@ function Field({ label, value, onChange, rows = 1 }: { label: string; value: str
     <label className="block space-y-1">
       <span className={LABEL}>{label}</span>
       {rows > 1 ? (
-        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} className={`${INPUT} resize-y`} />
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} className={`${INPUT} resize-none`} />
       ) : (
         <input value={value} onChange={(e) => onChange(e.target.value)} className={INPUT} />
       )}
@@ -150,30 +214,45 @@ function Field({ label, value, onChange, rows = 1 }: { label: string; value: str
 
 /** One line per entry; blank lines are dropped on save. */
 function ListField({ label, values, onChange }: { label: string; values: string[]; onChange: (v: string[]) => void }) {
+  // The textarea keeps the raw text: deriving its value from the parsed list on every
+  // keystroke would swallow the newline or space just typed at the end of a line.
+  const [text, setText] = useState(() => toLines(values));
+
+  // Adopt changes that came from elsewhere (reset, refine, another field), but not the
+  // echo of our own edit — that only differs from the parsed list by pending whitespace.
+  useEffect(() => {
+    setText((current) =>
+      fromLines(current).join("\n") === values.join("\n") ? current : toLines(values)
+    );
+  }, [values]);
+
   return (
     <label className="block space-y-1">
       <span className={LABEL}>{label}</span>
       <textarea
-        value={toLines(values)}
-        onChange={(e) => onChange(fromLines(e.target.value))}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(fromLines(e.target.value));
+        }}
         rows={Math.min(8, Math.max(2, values.length + 1))}
-        className={`${INPUT} resize-y`}
+        className={`${INPUT} resize-none`}
       />
     </label>
   );
 }
 
 function Prose({ text }: { text?: string | null }) {
-  if (!text) return <p className="text-sm italic text-zinc-600">Not filled in.</p>;
-  return <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{text}</p>;
+  if (!text) return <p className="text-sm italic">Not filled in.</p>;
+  return <p className="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>;
 }
 
 function Chips({ values, empty }: { values: string[]; empty: string }) {
-  if (values.length === 0) return <p className="text-sm italic text-zinc-600">{empty}</p>;
+  if (values.length === 0) return <p className="text-sm italic text-muted">{empty}</p>;
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-2">
       {values.map((value) => (
-        <span key={value} className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[11px] text-zinc-300">
+        <span key={value} className="max-w-full truncate text-sm border px-2 py-1 rounded-full transition-colors leading-3 text-foreground border-border/60 flex items-center gap-2 bg-background">
           {value}
         </span>
       ))}
@@ -187,6 +266,12 @@ export default function CharacterDetailPage() {
   const queryClient = useQueryClient();
   const characterId = Number(params?.id);
   const [draft, setDraft] = useState<Character | null>(null);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [refineNotes, setRefineNotes] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineStatus, setRefineStatus] = useState("");
+  const [refineError, setRefineError] = useState("");
+  const [revisionNotes, setRevisionNotes] = useState<string[]>([]);
 
   const { data: character, isLoading, isError } = useQuery({
     queryKey: ["character", characterId],
@@ -202,6 +287,37 @@ export default function CharacterDetailPage() {
       setDraft(null);
     },
   });
+
+  const unlockMut = useMutation({
+    mutationFn: (lockedFields: string[]) => updateCharacter(characterId, { locked_fields: lockedFields }),
+    onSuccess: (saved) => queryClient.setQueryData(["character", characterId], saved),
+  });
+
+  const runRefine = async () => {
+    setRefining(true);
+    setRefineError("");
+    setRefineStatus("Starting…");
+    setRevisionNotes([]);
+    try {
+      for await (const event of refineCharacter(characterId, refineNotes)) {
+        if (event.kind === "progress") {
+          setRefineStatus(event.message);
+        } else if (event.kind === "ok") {
+          queryClient.setQueryData(["character", characterId], event.character);
+          queryClient.invalidateQueries({ queryKey: ["characters"] });
+          setRefineStatus("Refined.");
+          setRevisionNotes(event.notes ?? []);
+          setRefineNotes("");
+        } else if (event.kind === "profile_error") {
+          setRefineError(event.error);
+        }
+      }
+    } catch (err) {
+      setRefineError(err instanceof Error ? err.message : "Refine failed");
+    } finally {
+      setRefining(false);
+    }
+  };
 
   const deleteMut = useMutation({
     mutationFn: () => deleteCharacter(characterId),
@@ -229,7 +345,7 @@ export default function CharacterDetailPage() {
 
   const handleSave = () => {
     if (!draft) return;
-    const { id: _id, created_at: _created, updated_at: _updated, ...patch } = draft;
+    const { id: _id, created_at: _created, updated_at: _updated, evidence: _evidence, ...patch } = draft;
     saveMut.mutate(patch);
   };
 
@@ -237,14 +353,14 @@ export default function CharacterDetailPage() {
     <div className="space-y-6 pt-5 pb-16">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <Link href="/characters" className="text-xs text-zinc-500 hover:text-yellow-400">
+          <Link href="/characters" className="text-xs text-muted hover:text-highlight">
             ← All characters
           </Link>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">{character.name}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             {character.role && <span className="capitalize">{character.role}</span>}
-            {character.archetype && <span className="text-yellow-500/90">· {character.archetype}</span>}
-            {character.aliases.length > 0 && <span>· also: {character.aliases.join(", ")}</span>}
+            {character.archetype && <span className="text-highlight">· {character.archetype}</span>}
+            {character.aliases.length > 0 && <span className="text-muted">· a.k.a: <i>{character.aliases.join(", ")}</i></span>}
           </p>
         </div>
 
@@ -254,7 +370,7 @@ export default function CharacterDetailPage() {
               <button
                 type="button"
                 onClick={() => setDraft(null)}
-                className="rounded-lg bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700"
+                className="rounded-lg cursor-pointer bg-card hover:bg-red-600 hover:text-red-100 px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted"
               >
                 Cancel
               </button>
@@ -262,7 +378,7 @@ export default function CharacterDetailPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={saveMut.isPending}
-                className="rounded-lg bg-yellow-600 px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-yellow-500 disabled:opacity-50"
+                className="rounded-lg cursor-pointer bg-card hover:bg-highlight hover:text-background px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted"
               >
                 {saveMut.isPending ? "Saving…" : "Save"}
               </button>
@@ -271,57 +387,144 @@ export default function CharacterDetailPage() {
             <>
               <button
                 type="button"
-                onClick={() => setDraft(structuredClone(character))}
-                className="rounded-lg bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700"
+                onClick={() => setRefineOpen((open) => !open)}
+                disabled={refining || character.source_book_ids.length === 0}
+                title="Read more of the source books and review this sheet against all the evidence"
+                className="flex gap-2 items-center rounded-lg cursor-pointer bg-card hover:bg-highlight hover:text-background px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted disabled:cursor-not-allowed disabled:text-foreground"
               >
-                Edit
+                <SparklesIcon /> {refining ? "Refining…" : "Refine"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft(structuredClone(character))}
+                disabled={refining}
+                className="flex gap-2 items-center rounded-lg cursor-pointer bg-card hover:bg-highlight hover:text-background px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted disabled:cursor-not-allowed disabled:text-foreground"
+              >
+                <EditIcon/> Edit
               </button>
               <button
                 type="button"
                 onClick={() => {
                   if (confirm(`Delete ${character.name}?`)) deleteMut.mutate();
                 }}
-                className="rounded-lg bg-red-900/50 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-800/70"
+                className="flex gap-2 items-center rounded-lg cursor-pointer bg-card hover:bg-red-600 hover:text-red-100 px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted"
               >
-                Delete
+                <TrashIcon />Delete
               </button>
             </>
           )}
         </div>
       </header>
 
-      {saveMut.isError && <p className="text-sm text-red-400">Couldn&apos;t save — try again.</p>}
+      {saveMut.isError && <p className="text-sm text-red-400">Couldn&apos;t save, try again.</p>}
+
+      {(refineOpen || refining || refineError) && !editing && (
+        <section className="space-y-2 rounded-xl bg-card shadow-sm shadow-border p-4">
+          <div>
+            <h2 className="text-sm font-bold mb-2">Refine this profile</h2>
+            <p className="text-xs text-muted">
+              Reads passages earlier passes skipped (the least-covered parts of the story first), adds them to the
+              evidence already gathered, and rewrites the sheet from all of it — what recurs across the story leads,
+              what only holds for part of it goes to the arc, one-off moments drop out. Fields you edited by hand are
+              kept, so lock anything you like before refining. Takes a few minutes.
+            </p>
+          </div>
+          <textarea
+            value={refineNotes}
+            onChange={(e) => setRefineNotes(e.target.value)}
+            disabled={refining}
+            rows={2}
+            placeholder="Optional notes, e.g. “His cruelty is mostly a mask — weigh the later books more.”"
+            className={`${INPUT} resize-none`}
+          />
+
+          <div className="flex items-center justify-end">
+            <div className="flex gap-2 items-center">
+              <button
+                type="button"
+                onClick={runRefine}
+                disabled={refining}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-highlight hover:text-background disabled:cursor-not-allowed disabled:bg-muted/20 disabled:text-muted"
+              >
+                {refining ? "Refining…" : "Start"}
+              </button>
+
+              {!refining && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRefineOpen(false);
+                    setRefineError("");
+                  }}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-highlight hover:text-background disabled:cursor-not-allowed disabled:bg-muted/20 disabled:text-muted"
+                >
+                  Close
+                </button>
+              )}
+
+              {refineStatus && (
+                <span className="text-xs text-muted">{refineStatus}</span>
+              )}
+            </div>
+          </div>
+
+          {refineError && (
+            <p className="text-sm text-red-400">{refineError}</p>
+          )}
+
+          {revisionNotes.length > 0 && (
+            <div>
+              <p className={LABEL}>What changed</p>
+              <ul className="ml-4 list-disc space-y-0.5 text-sm">
+                {revisionNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
-        <aside className="space-y-4">
-          <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-800">
+        {/* Sticky from large screens up: on narrow layouts the column stacks above the
+            sheet, where pinning it would hide the profile. It scrolls internally when
+            the panels outgrow the viewport. */}
+        <aside className="space-y-4 self-start lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto">
+          <div className="aspect-[2/3] overflow-hidden rounded-xl bg-card shadow-sm shadow-border">
             {character.thumbnail ? (
               <img src={character.thumbnail} alt={character.name} className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full items-center justify-center text-xs text-zinc-600">
+              <div className="flex h-full items-center justify-center text-xs text-muted">
                 No thumbnail
               </div>
             )}
           </div>
 
-          <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 text-[11px] text-zinc-400">
+          <div className="space-y-2 rounded-xl bg-card shadow-border shadow-sm p-3 text-xs">
             <p>
-              <span className="text-zinc-500">Status: </span>
-              <span className={character.status === "complete" ? "text-green-400" : "text-yellow-400"}>
+              <span className="text-muted">Status: </span>
+              <span className={character.status === "complete" ? "text-green-400" : "text-orange-400"}>
                 {character.status}
               </span>
             </p>
             {character.model && (
               <p className="truncate">
-                <span className="text-zinc-500">Extracted by: </span>
-                {character.model}
+                <span className="text-muted">Extracted by: </span>
+                <span className="">{character.model}</span>
               </p>
             )}
-            <div>
-              <p className="text-zinc-500">Sources:</p>
+
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <p className="text-muted">Sources:</p>
               <SourceBooks ids={character.source_book_ids} />
             </div>
           </div>
+
+          <EvidencePanel
+            evidence={character.evidence}
+            locked={character.locked_fields ?? []}
+            onUnlock={(field) => unlockMut.mutate((character.locked_fields ?? []).filter((f) => f !== field))}
+          />
 
           <CharacterLists characterId={character.id} />
         </aside>
@@ -331,7 +534,7 @@ export default function CharacterDetailPage() {
             <>
               <Section title="Identity">
                 <Field label="Name" value={draft.name} onChange={(v) => patchDraft({ name: v })} />
-                <Field label="Aliases (one per line)" value={toLines(draft.aliases)} onChange={(v) => patchDraft({ aliases: fromLines(v) })} rows={2} />
+                <ListField label="Aliases (one per line)" values={draft.aliases} onChange={(v) => patchDraft({ aliases: v })} />
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Role" value={draft.role ?? ""} onChange={(v) => patchDraft({ role: v })} />
                   <Field label="Archetype" value={draft.archetype ?? ""} onChange={(v) => patchDraft({ archetype: v })} />
@@ -386,23 +589,23 @@ export default function CharacterDetailPage() {
                         }}
                         rows={2}
                         placeholder="how it shows up"
-                        className={`${INPUT} resize-y`}
+                        className={`${INPUT} resize-none`}
                       />
                       <button
                         type="button"
                         onClick={() => patchDraft({ relationships: draft.relationships.filter((_, i) => i !== index) })}
-                        className="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-400 hover:text-red-400"
+                        className="rounded-lg p-3 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-red-600 hover:text-red-100"
                       >
-                        ✕
+                        <ClearIcon />
                       </button>
                     </div>
                   ))}
                   <button
                     type="button"
                     onClick={() => patchDraft({ relationships: [...draft.relationships, { dynamic: "", behaviour: "" }] })}
-                    className="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700"
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-highlight hover:text-background"
                   >
-                    ＋ Add pattern
+                    ＋Add pattern
                   </button>
                 </div>
               </Section>
@@ -474,7 +677,7 @@ export default function CharacterDetailPage() {
                 {character.voice.tells.length > 0 && (
                   <div>
                     <p className={LABEL}>Tells</p>
-                    <ul className="ml-4 list-disc space-y-0.5 text-sm text-zinc-300">
+                    <ul className="ml-4 list-disc space-y-0.5 text-sm">
                       {character.voice.tells.map((tell) => (
                         <li key={tell}>{tell}</li>
                       ))}
@@ -502,9 +705,9 @@ export default function CharacterDetailPage() {
                 ) : (
                   <ul className="space-y-2">
                     {character.relationships.map((rel, index) => (
-                      <li key={index} className="rounded-lg bg-zinc-950/40 px-3 py-2">
-                        <p className="text-sm font-semibold text-yellow-400/90">{rel.dynamic}</p>
-                        <p className="text-sm leading-relaxed text-zinc-300">{rel.behaviour}</p>
+                      <li key={index} className="rounded-lg bg-background border border-muted/20 px-3 py-2">
+                        <p className="text-sm font-semibold">{rel.dynamic}</p>
+                        <p className="text-sm leading-relaxed">{rel.behaviour}</p>
                       </li>
                     ))}
                   </ul>
@@ -514,7 +717,7 @@ export default function CharacterDetailPage() {
               <Section title="Backstory & arc">
                 <Prose text={character.formative_experience} />
                 {character.arc_pattern && (
-                  <p className="text-sm text-zinc-400">
+                  <p className="text-sm">
                     <span className={LABEL}>Arc: </span>
                     {character.arc_pattern}
                   </p>

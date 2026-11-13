@@ -27,6 +27,17 @@ export interface RelationshipPattern {
   behaviour: string;
 }
 
+/** How much of the text stands behind a generated profile. */
+export interface CharacterEvidence {
+  observations: number;
+  chapters: number;
+  passages: number;
+  themes: number;
+  established: number;
+  passes: number;
+  updated_at?: string | null;
+}
+
 export interface Character {
   id: number;
   name: string;
@@ -46,6 +57,9 @@ export interface Character {
   formative_experience?: string | null;
   arc_pattern?: string | null;
   situational_anchors: string[];
+  /** Fields edited by hand; regeneration and refine leave them as they are. */
+  locked_fields: string[];
+  evidence?: CharacterEvidence | null;
   thumbnail?: string | null;
   status: string;
   error?: string | null;
@@ -56,4 +70,4 @@ export interface Character {
 }
 
 /** Everything writable on a profile. */
-export type CharacterInput = Omit<Character, "id" | "created_at" | "updated_at">;
+export type CharacterInput = Omit<Character, "id" | "created_at" | "updated_at" | "evidence">;

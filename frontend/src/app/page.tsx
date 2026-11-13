@@ -376,7 +376,7 @@ export default function LibraryPage() {
               hint="Index these books first — characters are read from the search index"
               disabled={selectedUnindexed.length > 0}
             >
-              <CharacterIcon fill="currentColor" />
+              <CharacterIcon />
             </RailAction>
 
             {/* Index only the selected books that are not indexed yet */}

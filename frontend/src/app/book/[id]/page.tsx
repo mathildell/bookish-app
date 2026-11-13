@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { indexBook, unindexBook, writeObsidianReview, fetchSettingsSummary } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
+import { CharacterIcon, ChatIcon } from "@/components/icons";
 
 /* Calibre is READ-ONLY — the app must never write to the Calibre database.
    All note/field mutations go only to Obsidian review files or local state. */
@@ -113,14 +114,23 @@ function BookDetailContent({ book }: { book: BookDetail }) {
             {book.indexed ? "Remove from index" : "Index this book"}
           </button>
 
-          {/* Nothing to chat with until the book has content in the index */}
+          {/* Chat and character extraction both read the index, so they only
+              appear once the book has content in it. */}
           {book.indexed && (
-            <Link
-              href={`/chat?ids=${book.id}`}
-              className="block w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
-            >
-              💬 Chat with this book
-            </Link>
+            <>
+              <Link
+                href={`/chat?ids=${book.id}`}
+                className="flex gap-2 items-center justify-center w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
+              >
+                <ChatIcon className="w-6 h-6" /> Chat with this book
+              </Link>
+              <Link
+                href={`/characters/extract?ids=${book.id}`}
+                className="flex gap-2 items-center justify-center w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
+              >
+                <CharacterIcon /> Extract characters
+              </Link>
+            </>
           )}
         </div>
 

@@ -436,7 +436,8 @@ export type DiscoverEvent =
 
 export type ProfileEvent =
   | { kind: "started"; name: string }
-  | { kind: "ok"; name: string; character: Character }
+  | { kind: "progress"; name: string; message: string }
+  | { kind: "ok"; name: string; character: Character; notes?: string[] }
   | { kind: "profile_error"; name: string; error: string }
   | { kind: "done" };
 
@@ -488,8 +489,34 @@ export async function* streamProfiles(
       case "started":
         yield { kind: "started", name };
         break;
+      case "progress":
+        yield { kind: "progress", name, message: String(data.message ?? "") };
+        break;
       case "ok":
         yield { kind: "ok", name, character: data.character as Character };
+        break;
+      case "error":
+        yield { kind: "profile_error", name, error: String(data.error ?? "failed") };
+        break;
+    }
+  }
+  yield { kind: "done" };
+}
+
+/**
+ * Another pass over a saved profile: reads passages earlier passes skipped and
+ * reviews the sheet against all the evidence. Hand-edited fields are kept.
+ */
+export async function* refineCharacter(id: number, guidance = ""): AsyncGenerator<ProfileEvent> {
+  const body = await openStream(`/characters/${id}/refine`, { guidance }, "Refine failed");
+  for await (const data of readSse(body)) {
+    const name = String(data.name ?? "");
+    switch (String(data.event ?? "")) {
+      case "progress":
+        yield { kind: "progress", name, message: String(data.message ?? "") };
+        break;
+      case "ok":
+        yield { kind: "ok", name, character: data.character as Character, notes: (data.notes ?? []) as string[] };
         break;
       case "error":
         yield { kind: "profile_error", name, error: String(data.error ?? "failed") };
