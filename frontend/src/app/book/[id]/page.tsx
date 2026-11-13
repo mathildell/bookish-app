@@ -97,7 +97,7 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           {book.cover_uri ? (
             <img src={book.cover_uri} alt={book.title} className="w-full object-contain" />
           ) : (
-            <div className="flex items-center justify-center h-full text-muted">No cover</div>
+            <div className="flex items-center justify-center h-full text-muted py-6">No cover</div>
           )}
         </div>
 

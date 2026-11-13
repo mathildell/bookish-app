@@ -16,7 +16,7 @@ import {
   type SceneTurn,
 } from "@/lib/api";
 import { parseIds, initials } from "@/lib/format";
-import { BookmarkIcon, CheckIcon, ClearIcon, SparklesIcon } from "@/components/icons";
+import { BookmarkIcon, CheckIcon, ClearIcon, CharacterIcon } from "@/components/icons";
 
 function applyCastParam(ids: number[]) {
   const query = ids.length ? `?chars=${ids.join(",")}` : "";
@@ -247,7 +247,7 @@ function WritePageContent() {
 
           <div className="flex-shrink-0 rounded-lg px-2.5 py-2 text-xs leading-snug bg-accent/20 border border-accent">
             <p className="flex items-center gap-1">
-              <SparklesIcon />
+              <CharacterIcon className="w-5 h-5" />
               {castIds.length === 0
                 ? "No cast selected"
                 : `${castIds.length} character${castIds.length === 1 ? "" : "s"} selected`}

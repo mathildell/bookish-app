@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -272,6 +272,19 @@ export default function CharacterDetailPage() {
   const [refineStatus, setRefineStatus] = useState("");
   const [refineError, setRefineError] = useState("");
   const [revisionNotes, setRevisionNotes] = useState<string[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  const refineAbort = useRef<AbortController | null>(null);
+
+  // A refine takes minutes and the first steps emit nothing, so show that time is passing.
+  useEffect(() => {
+    if (!refining) return;
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [refining]);
+
+  // Leaving the page drops the stream, which stops the backend job at its next step.
+  useEffect(() => () => refineAbort.current?.abort(), []);
 
   const { data: character, isLoading, isError } = useQuery({
     queryKey: ["character", characterId],
@@ -294,12 +307,14 @@ export default function CharacterDetailPage() {
   });
 
   const runRefine = async () => {
+    const abort = new AbortController();
+    refineAbort.current = abort;
     setRefining(true);
     setRefineError("");
     setRefineStatus("Starting…");
     setRevisionNotes([]);
     try {
-      for await (const event of refineCharacter(characterId, refineNotes)) {
+      for await (const event of refineCharacter(characterId, refineNotes, abort.signal)) {
         if (event.kind === "progress") {
           setRefineStatus(event.message);
         } else if (event.kind === "ok") {
@@ -313,8 +328,10 @@ export default function CharacterDetailPage() {
         }
       }
     } catch (err) {
-      setRefineError(err instanceof Error ? err.message : "Refine failed");
+      if (abort.signal.aborted) setRefineStatus("Cancelled.");
+      else setRefineError(err instanceof Error ? err.message : "Refine failed");
     } finally {
+      refineAbort.current = null;
       setRefining(false);
     }
   };
@@ -449,6 +466,16 @@ export default function CharacterDetailPage() {
                 {refining ? "Refining…" : "Start"}
               </button>
 
+              {refining && (
+                <button
+                  type="button"
+                  onClick={() => refineAbort.current?.abort()}
+                  className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer bg-background hover:bg-red-600 hover:text-red-100"
+                >
+                  Cancel
+                </button>
+              )}
+
               {!refining && (
                 <button
                   type="button"
@@ -463,7 +490,13 @@ export default function CharacterDetailPage() {
               )}
 
               {refineStatus && (
-                <span className="text-xs text-muted">{refineStatus}</span>
+                <span className="flex items-center gap-2 text-xs text-muted">
+                  {refining && (
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-highlight" />
+                  )}
+                  {refineStatus}
+                  {refining && ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`}
+                </span>
               )}
             </div>
           </div>

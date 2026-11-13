@@ -51,11 +51,17 @@ async function request<T>(path: string, { method = "GET", body, error, timeoutMs
 }
 
 /** POST a JSON body to a streaming endpoint; throws with the server's detail on failure. */
-async function openStream(path: string, body: unknown, error: string): Promise<ReadableStream<Uint8Array>> {
+async function openStream(
+  path: string,
+  body: unknown,
+  error: string,
+  signal?: AbortSignal
+): Promise<ReadableStream<Uint8Array>> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok || !res.body) {
     throw new Error((await errorDetail(res)) || `${error}: ${res.statusText}`);
@@ -507,8 +513,12 @@ export async function* streamProfiles(
  * Another pass over a saved profile: reads passages earlier passes skipped and
  * reviews the sheet against all the evidence. Hand-edited fields are kept.
  */
-export async function* refineCharacter(id: number, guidance = ""): AsyncGenerator<ProfileEvent> {
-  const body = await openStream(`/characters/${id}/refine`, { guidance }, "Refine failed");
+export async function* refineCharacter(
+  id: number,
+  guidance = "",
+  signal?: AbortSignal
+): AsyncGenerator<ProfileEvent> {
+  const body = await openStream(`/characters/${id}/refine`, { guidance }, "Refine failed", signal);
   for await (const data of readSse(body)) {
     const name = String(data.name ?? "");
     switch (String(data.event ?? "")) {
