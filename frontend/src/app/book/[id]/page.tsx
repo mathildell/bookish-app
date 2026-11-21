@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBook } from "@/lib/api";
+import { fetchBook, fetchCharacters } from "@/lib/api";
 import type { BookDetail } from "@/types/book";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -159,6 +159,7 @@ function BookDetailContent({ book }: { book: BookDetail }) {
           )}
         </dl>
 
+        <BookCharacters bookId={book.id} />
       </div>
 
       {/* Right: tags, links, blurb, notes, review */}
@@ -260,6 +261,43 @@ function BookDetailContent({ book }: { book: BookDetail }) {
         </section>
       </div>
     </div>
+  );
+}
+
+/** Profiles extracted from this book, linking through to their sheets. */
+function BookCharacters({ bookId }: { bookId: number }) {
+  const { data: characters, isLoading } = useQuery({
+    queryKey: ["characters", "book", bookId],
+    queryFn: () => fetchCharacters({ calibreId: bookId }),
+  });
+
+  return (
+    <section className="space-y-2 text-sm">
+      <h2 className="text-muted">Characters</h2>
+      {isLoading ? (
+        <p className="text-xs text-muted">Loading…</p>
+      ) : characters && characters.length > 0 ? (
+        <div className="flex flex-wrap gap-x-1 gap-y-2">
+          {characters.map((character) => (
+            <Link 
+              key={character.id}
+              href={`/characters/${character.id}`}
+              className="max-w-full truncate text-xs text-muted px-2 py-1 rounded-full transition-colors leading-tight flex items-center gap-1 cursor-pointer bg-card/50 shadow-sm shadow-border hover:bg-card hover:text-foreground"
+            >
+              {character.name}
+              {character.role && (
+                <>
+                  <span className="text-xs text-muted capitalize"> · </span>
+                  <span className="text-xs text-muted capitalize">{character.role}</span>
+                </>  
+              )}
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs italic text-muted">No profiles yet.</p>
+      )}
+    </section>
   );
 }
 

@@ -16,6 +16,7 @@ wheels/
 .installed.cfg
 *.egg
 .venv/
+.python-runtime/
 config.yaml
 .env
 .claude/skills/developing-with-streamlit

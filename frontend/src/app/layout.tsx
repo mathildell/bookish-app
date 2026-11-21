@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Raleway } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { NAV_SEARCH_SLOT_ID } from "@/lib/navSearchSlot";
 import { BookmarkIcon, ChevronIcon, GearIcon } from "@/components/icons";
 import Providers from "./providers";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Raleway({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "BookishApp",

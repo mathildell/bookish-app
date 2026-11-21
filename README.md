@@ -138,7 +138,9 @@ models run on your own Ollama host, and user data lives in plain files under `da
 
 ## Requirements
 
-- Python 3.11+
+- **Python 3.14** — the project ships its own interpreter in `.python-runtime/` (see
+  [Setup](#setup)). 3.15 does not work yet: `chromadb` needs `onnxruntime` and `numpy`, and neither
+  publishes cp315 wheels, so pip falls back to building numpy 1.26.4 from source and fails.
 - Node.js 20+
 - A Calibre library with EPUBs. The reader expects these custom columns:
   `#8` Goodreads rating, `#9` date read, `#11` page count, `#12` genre, `#13` status,
@@ -148,15 +150,41 @@ models run on your own Ollama host, and user data lives in plain files under `da
 
 ## Setup
 
+The backend venv is pinned to Python 3.14. Always create it from the interpreter in
+`.python-runtime/`, never from the distro's `python3` — on Fedora 45 that is 3.15, and
+`python -m venv .venv` silently repoints the venv at an interpreter that cannot see the installed
+packages, so the next start fails with `No module named uvicorn`.
+
 ```bash
-# Backend
-python -m venv .venv
-source .venv/bin/activate
+# 1. Pinned interpreter — once per machine; skip if .python-runtime/ already exists.
+#    Self-contained CPython 3.14.10 from python-build-standalone, git-ignored, no root needed.
+curl -fL -o /tmp/cpython-3.14.10.tar.gz \
+  'https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.14.10%2B20261110-x86_64-unknown-linux-gnu-install_only.tar.gz'
+mkdir -p .python-runtime && tar -xzf /tmp/cpython-3.14.10.tar.gz -C .python-runtime
+
+# 2. Backend venv, built from that interpreter
+.python-runtime/python/bin/python3.14 -m venv .venv
+source .venv/bin/activate          # fish: source .venv/bin/activate.fish
+python -V                          # must say 3.14.10
 pip install -r requirements-backend.txt
 
-# Frontend
+# 3. Frontend
 cd frontend
 npm install
+```
+
+`./restart.sh` and `./init_run.sh` call `.venv/bin/python` (and `init_run.sh` sources
+`.venv/bin/activate`) directly, so they need no activation step. For an interactive shell,
+activate as above, or skip activation and call `.venv/bin/python …` explicitly.
+
+If an existing venv stops importing packages, it was recreated with the wrong interpreter.
+Point it back at the pinned one — `--upgrade` rewrites `pyvenv.cfg`, and the `python3` symlink has
+to be fixed by hand:
+
+```bash
+.python-runtime/python/bin/python3.14 -m venv --upgrade .venv
+ln -sfn "$PWD/.python-runtime/python/bin/python3.14" .venv/bin/python3
+.venv/bin/python -V                # 3.14.10
 ```
 
 Create `config.yaml` at the project root (or set the values from the Settings page later —
@@ -205,6 +233,8 @@ source .venv/bin/activate
 uvicorn backend.main:app --reload --port 8000
 cd frontend && npm run dev
 ```
+
+(without activation: `.venv/bin/python -m uvicorn backend.main:app --reload --port 8000`)
 
 Then open <http://localhost:3000>. Index a few books (card **Index** button, or select several
 and use the rail) before chatting with them or extracting characters.

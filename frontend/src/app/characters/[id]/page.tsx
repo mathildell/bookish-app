@@ -66,7 +66,7 @@ function EvidencePanel({
                 type="button"
                 onClick={() => onUnlock(field)}
                 title="Unlock: let refine and regeneration rewrite this field"
-                className="*max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2 cursor-pointer"
+                className="max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2 cursor-pointer"
               >
                 <LockIcon /> {FIELD_LABELS[field] ?? field} <ClearIcon />
               </button>
@@ -125,15 +125,15 @@ function SourceBooks({ ids }: { ids: number[] }) {
   const books = data ?? ids.map((id) => ({ id, title: `#${id}` }));
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1">
+    <div className="mt-1 flex flex-wrap items-center w-full gap-1">
       {books.map(({ id, title }) => (
         <Link
           key={id}
           href={`/book/${id}`}
           title={`Calibre #${id}`}
-          className="max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border flex items-center gap-2"
+          className="max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border"
         >
-          <BookIcon /> {title}
+          <BookIcon className="w-4 h-4 inline mr-0.5" /> {title}
         </Link>
       ))}
     </div>
@@ -313,22 +313,34 @@ export default function CharacterDetailPage() {
     setRefineError("");
     setRefineStatus("Starting…");
     setRevisionNotes([]);
+    let refined = false;
+    let failed = false;
     try {
       for await (const event of refineCharacter(characterId, refineNotes, abort.signal)) {
         if (event.kind === "progress") {
           setRefineStatus(event.message);
         } else if (event.kind === "ok") {
+          refined = true;
           queryClient.setQueryData(["character", characterId], event.character);
           queryClient.invalidateQueries({ queryKey: ["characters"] });
-          setRefineStatus("Refined.");
+          setRefineStatus("Refined");
           setRevisionNotes(event.notes ?? []);
           setRefineNotes("");
         } else if (event.kind === "profile_error") {
+          failed = true;
           setRefineError(event.error);
         }
       }
+      // A dropped connection ends the stream without a result: say so, rather
+      // than leaving the last step on screen as if the run were still going.
+      if (!refined && !failed && !abort.signal.aborted) {
+        setRefineStatus("Stopped");
+        setRefineError(
+          "The refine stream ended before the profile was updated — nothing was changed. Try again."
+        );
+      }
     } catch (err) {
-      if (abort.signal.aborted) setRefineStatus("Cancelled.");
+      if (abort.signal.aborted) setRefineStatus("Cancelled");
       else setRefineError(err instanceof Error ? err.message : "Refine failed");
     } finally {
       refineAbort.current = null;
@@ -455,7 +467,19 @@ export default function CharacterDetailPage() {
             className={`${INPUT} resize-none`}
           />
 
-          <div className="flex items-center justify-end">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted">
+              {refineStatus && (
+                  <>
+                    {refining && (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-highlight" />
+                    )}
+                    {refineStatus}
+                    {refining && ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`}
+                  </>
+              )}
+            </div>
+
             <div className="flex gap-2 items-center">
               <button
                 type="button"
@@ -488,16 +512,6 @@ export default function CharacterDetailPage() {
                   Close
                 </button>
               )}
-
-              {refineStatus && (
-                <span className="flex items-center gap-2 text-xs text-muted">
-                  {refining && (
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-highlight" />
-                  )}
-                  {refineStatus}
-                  {refining && ` · ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`}
-                </span>
-              )}
             </div>
           </div>
 
@@ -506,7 +520,7 @@ export default function CharacterDetailPage() {
           )}
 
           {revisionNotes.length > 0 && (
-            <div>
+            <div className="p-8 bg-background rounded-lg">
               <p className={LABEL}>What changed</p>
               <ul className="ml-4 list-disc space-y-0.5 text-sm">
                 {revisionNotes.map((note) => (

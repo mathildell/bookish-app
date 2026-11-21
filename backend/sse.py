@@ -30,6 +30,14 @@ SSE_HEADERS = {
 # Marks the end of a producer thread's output in the queue.
 _END = object()
 
+# Whatever sits in front of the server closes a stream that goes quiet: Next's
+# dev rewrite proxy gives up on an idle upstream after 30s. One model call can
+# be silent for minutes (a single refine batch), so whenever the producer has
+# written nothing for a while a comment line goes out — ignored by every SSE
+# client, but it keeps the connection open and shows the job is still running.
+_KEEPALIVE_SECONDS = 10.0
+_KEEPALIVE_FRAME = ": keep-alive\n\n"
+
 Emit = Callable[..., None]
 Producer = Callable[[Emit, threading.Event], None]
 
@@ -87,7 +95,13 @@ def stream_from_thread(
         threading.Thread(target=run, name=f"{name}-stream", daemon=True).start()
         try:
             while True:
-                frame = await queue.get()
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        return
+                    yield _KEEPALIVE_FRAME
+                    continue
                 if frame is _END:
                     break
                 # Drop the rest of the work for a client that walked away.

@@ -17,7 +17,7 @@ import {
   useCharacterLists,
   useCharacters,
 } from "@/lib/api";
-import { ClearIcon, FolderAdd, ListAdd, SparklesIcon, TrashIcon } from "@/components/icons";
+import { ClearIcon, FolderAdd, ListAdd, SparklesIcon, TrashIcon, CharacterIcon } from "@/components/icons";
 
 // Round icon buttons of the selection rail — identical to the library's rail.
 const ACTION_BTN =
@@ -189,7 +189,7 @@ export default function CharactersPage() {
 
           {!isError && !isLoading && visible.length === 0 && (
             <div className="space-y-3 py-20 text-center text-muted">
-              <p className="text-4xl">👥</p>
+              <p className="text-4xl"><CharacterIcon className="w-10 h-10 inline" /></p>
               {activeList ? (
                 <>
                   <p className="text-sm">Nobody in &quot;{activeList.name}&quot; yet.</p>
