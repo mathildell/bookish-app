@@ -52,9 +52,14 @@ class AppSettings:
     extraction_model: str = "llama3.1:8b"
     # Empty means "same as chat_model"; the abliterated writing model goes here.
     writing_model: str = ""
-    writing_temperature: float = 0.95
+    writing_temperature: float = 0.75
     writing_top_p: float = 0.95
+    writing_min_p: float = 0.05
+    writing_repeat_penalty: float = 1.1
     writing_num_predict: int = 1200
+    # Cast profiles + history overflow Ollama's 4096 default and get silently cut
+    # from the front, which is where the profiles and rules live.
+    writing_num_ctx: int = 16384
     # Chat request limits. Ollama's own defaults (num_ctx 4096, unlimited
     # num_predict) are wrong for RAG: the window truncates the retrieved
     # passages, and an uncapped model can reason until it starves the machine.

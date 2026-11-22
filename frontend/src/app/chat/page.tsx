@@ -5,9 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import ChatInterface from "@/components/ChatInterface";
-import { fetchBook, fetchBooks } from "@/lib/api";
+import { fetchBook, fetchBooks, useBookTitles } from "@/lib/api";
 import type { BookCard, BookDetail } from "@/types/book";
-import { ClearIcon, LibraryIcon, BooksIcon, BookIcon } from "@/components/icons";
+import { ClearIcon, LibraryIcon, BooksIcon, BookIcon, WorldIcon } from "@/components/icons";
 import { parseIds } from "@/lib/format";
 
 const PICKER_PAGE_SIZE = 30;
@@ -41,6 +41,8 @@ function ChatPageContent() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
 
+  // Names come from the cheap batch lookup; the full record (cover) fills in after.
+  const { titleOf } = useBookTitles(selectedIds);
   const bookQueries = useQueries({
     queries: selectedIds.map((id) => ({
       queryKey: ["book", id],
@@ -145,6 +147,15 @@ function ChatPageContent() {
             )}
           </div>
 
+          {selectedIds.length > 0 && (
+            <Link
+              href={{ pathname: "/worlds/extract", query: { ids: selectedIds.join(",") } }}
+              className="flex flex-shrink-0 items-center justify-center gap-1.5 rounded-lg bg-background py-1.5 text-xs font-semibold text-muted shadow-sm shadow-border transition-colors hover:bg-highlight hover:text-card"
+            >
+              <WorldIcon className="h-4 w-4" /> Extract a world
+            </Link>
+          )}
+
           {/* Selected books grid */}
           {selectedIds.length > 0 ? (
             <div className="grid flex-1 min-h-0 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto">
@@ -163,12 +174,12 @@ function ChatPageContent() {
                         <img src={book.cover_uri} alt={book.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-muted text-xs text-center px-1">
-                          {book?.title ?? `#${id}`}
+                          {book?.title ?? titleOf(id)}
                         </div>
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-card rounded-b-md p-1 transition-opacity opacity-0 group-hover/book:opacity-100">
                         <p className="text-xs leading-tight line-clamp-2 font-medium">
-                          {book?.title ?? `#${id}`}
+                          {book?.title ?? titleOf(id)}
                         </p>
                       </div>
                     </Link>

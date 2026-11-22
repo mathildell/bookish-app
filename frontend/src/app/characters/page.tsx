@@ -241,7 +241,7 @@ export default function CharactersPage() {
           <div className="flex flex-col items-center gap-2.5 rounded-xl bg-background/50 px-2 py-4 shadow-sm shadow-border backdrop-blur-md">
             <Tooltip label={`Write a scene with ${selectedLabel}`} placement="left">
               <Link
-                href={{ pathname: "/write", query: { chars: selectedIds.join(",") } }}
+                href={{ pathname: "/write", query: { chars: selectedIds.join(","), tab: "prose" } }}
                 aria-label={`Write a scene with ${selectedLabel}`}
                 className={`${ACTION_BTN} hover:bg-highlight hover:text-background cursor-pointer`}
               >

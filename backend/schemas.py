@@ -274,19 +274,48 @@ class WriteTurn(BaseModel):
 
 
 class WriteRequest(BaseModel):
-    """A scene request: what happens, who is in it, and under which genre."""
+    """A scene request: what happens, and who and what it is set among."""
 
     message: str = ""
     history: list[WriteTurn] = []
     character_ids: list[int] = []
-    genre: str = ""
+    world_ids: list[int] = []
+    # Pinned facts the writer has settled; treated as established story canon.
+    notes: list[str] = []
+
+
+class DiscussRequest(WriteRequest):
+    """A question about the cast / world; answered as analysis, not prose."""
 
 
 class WriteSuggestionsRequest(BaseModel):
     """Ask for fresh suggestion pills without writing a new scene."""
 
     character_ids: list[int] = []
+    world_ids: list[int] = []
+    notes: list[str] = []
     history: list[WriteTurn] = []
+    # "write" proposes story beats; "discuss" proposes follow-up questions.
+    mode: str = "write"
+
+
+class PlanRequest(BaseModel):
+    """Turn a discussion into a handful of scene cards."""
+
+    message: str = ""
+    history: list[WriteTurn] = []
+    character_ids: list[int] = []
+    world_ids: list[int] = []
+    notes: list[str] = []
+    count: int = 3
+
+
+class DistillRequest(BaseModel):
+    """Compress a discussion reply into a scene brief or a one-line story note."""
+
+    content: str
+    kind: str = "brief"  # "brief" | "note"
+    character_ids: list[int] = []
 
 
 class DiscoverRequest(BaseModel):
@@ -308,6 +337,8 @@ class ProfileCandidate(BaseModel):
 class RefineRequest(BaseModel):
     """Another pass over a saved profile; optional notes steer it."""
     guidance: str = ""
+    # Extra books to read. Each becomes a source if the character shows up in it.
+    calibre_ids: list[int] = []
 
 
 class ProfilesRequest(BaseModel):
@@ -318,6 +349,105 @@ class ProfilesRequest(BaseModel):
     # where discovery's sampled excerpts happened to name them, which can be a
     # subset of the books that actually mention them.
     calibre_ids: list[int] = []
+
+
+# --------------------------------------------------------------------------- #
+# Worlds                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+class WorldTerm(BaseModel):
+    term: str = ""
+    meaning: str = ""
+
+
+class WorldCreate(BaseModel):
+    """Every writable field of a worldbuilding sheet."""
+    name: str
+    premise: Optional[str] = None
+    # URL of the world's picture; empty means "use the collage of its source covers".
+    image: Optional[str] = None
+    rules: list[str] = []
+    social_structure: list[str] = []
+    tropes: list[str] = []
+    settings: list[str] = []
+    terminology: list[WorldTerm] = []
+    tensions: list[str] = []
+    variants: list[str] = []
+    # Settled disagreements (see `variants`); kept so a refine does not reopen them.
+    decisions: list[str] = []
+    locked_fields: list[str] = []
+    status: str = "complete"
+    error: Optional[str] = None
+    model: Optional[str] = None
+    source_book_ids: list[int] = []
+    # Calibre id -> "normal" | "emphasise" | "primary" (JSON keys are strings).
+    source_weights: dict[str, str] = {}
+
+
+class WorldEvidence(BaseModel):
+    """How much reading stands behind a generated sheet."""
+    notes: int = 0
+    passages: int = 0
+    passes: int = 0
+
+
+class World(WorldCreate):
+    id: int
+    evidence: Optional[WorldEvidence] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class WorldUpdate(BaseModel):
+    """Patch a sheet. Only supplied fields change."""
+    name: Optional[str] = None
+    premise: Optional[str] = None
+    image: Optional[str] = None
+    rules: Optional[list[str]] = None
+    social_structure: Optional[list[str]] = None
+    tropes: Optional[list[str]] = None
+    settings: Optional[list[str]] = None
+    terminology: Optional[list[WorldTerm]] = None
+    tensions: Optional[list[str]] = None
+    variants: Optional[list[str]] = None
+    locked_fields: Optional[list[str]] = None
+    source_book_ids: Optional[list[int]] = None
+    source_weights: Optional[dict[str, str]] = None
+
+
+class ResolveVariantRequest(BaseModel):
+    """Settle one "where sources differ" entry.
+
+    `decision` is the version to adopt: one of the entry's own options or the writer's
+    own wording. With `dismiss`, the entry is simply dropped and the sheet is left alone.
+    """
+    variant: str
+    decision: str = ""
+    dismiss: bool = False
+
+
+class ResetMemoryRequest(BaseModel):
+    """Mark passages unread, so the next refine can read them again.
+
+    Only the record of *which passages were read* is cleared. Notes, observations and
+    the sheet are left exactly as they are; new findings merge into them on the next
+    refine. With a `calibre_id`, only that book; without, every book.
+    """
+    calibre_id: Optional[int] = None
+
+
+class WorldRefineRequest(BaseModel):
+    """Another pass over a saved world; extra books become new sources."""
+    guidance: str = ""
+    calibre_ids: list[int] = []
+
+
+class WorldExtractRequest(BaseModel):
+    """Extract a world from books. Re-using a name extends that sheet."""
+    name: str
+    calibre_ids: list[int] = []
+    guidance: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -338,8 +468,11 @@ class BookmarkCreate(BaseModel):
     calibre_ids: list[int] = []
     note: str = ""
     color: str = "yellow"
+    # Pinned bookmarks are sent to the Write / Discuss model as story notes.
+    pinned: bool = False
 
 
 class BookmarkUpdate(BaseModel):
     note: Optional[str] = None
     color: Optional[str] = None
+    pinned: Optional[bool] = None

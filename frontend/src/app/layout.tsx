@@ -23,6 +23,7 @@ const READ_LINKS: NavLinkItem[] = [
 
 const WRITE_LINKS: NavLinkItem[] = [
   { label: "Characters", href: "/characters" },
+  { label: "Worlds", href: "/worlds" },
   { label: "Sandbox", href: "/write" },
 ];
 

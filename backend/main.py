@@ -15,9 +15,11 @@ from backend.routers import (
     character_lists,
     characters,
     chat,
+    images,
     ingest,
     lists,
     settings,
+    worlds,
     write,
 )
 
@@ -42,7 +44,9 @@ for module, tag in (
     (bookmarks, "bookmarks"),
     (characters, "characters"),
     (character_lists, "character-lists"),
+    (worlds, "worlds"),
     (write, "write"),
+    (images, "images"),
 ):
     app.include_router(module.router, prefix="/api", tags=[tag])
 

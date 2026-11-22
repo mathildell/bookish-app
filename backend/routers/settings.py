@@ -1,7 +1,9 @@
 """Settings read/write endpoints, plus the Ollama model list for the pickers."""
 
+import asyncio
 from dataclasses import asdict
 
+import httpx
 from fastapi import APIRouter
 
 from backend import dependencies as deps
@@ -54,6 +56,35 @@ def list_models():
         for m in (listed.get("models") or [])
     } - {""})
     return {"models": models, "host": base_url, "error": None}
+
+
+# The pages gate their inputs on this, so it must answer quickly: a short probe
+# beats waiting out a model call against a host that is switched off.
+_OLLAMA_PROBE_TIMEOUT_S = 3.0
+
+
+def _probe_ollama(base_url: str) -> dict:
+    """One quick request; any HTTP answer at all means the host is reachable."""
+    try:
+        httpx.get(f"{base_url}/api/version", timeout=_OLLAMA_PROBE_TIMEOUT_S)
+    except httpx.TimeoutException:
+        return {
+            "ok": False,
+            "host": base_url,
+            "error": f"no answer within {_OLLAMA_PROBE_TIMEOUT_S:g}s",
+        }
+    except httpx.HTTPError as exc:
+        return {"ok": False, "host": base_url, "error": str(exc) or exc.__class__.__name__}
+    return {"ok": True, "host": base_url, "error": None}
+
+
+@router.get("/ollama/health")
+async def ollama_health():
+    """Whether the configured Ollama host answers, so the UI can warn and disable input."""
+    settings = deps.get_settings()
+    if settings is None:
+        return {"ok": False, "host": "", "error": "Settings not loaded"}
+    return await asyncio.to_thread(_probe_ollama, settings.ollama_base_url)
 
 
 @router.get("/settings", response_model=AppSettingsResponse)

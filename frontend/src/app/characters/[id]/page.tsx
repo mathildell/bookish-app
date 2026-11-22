@@ -6,15 +6,18 @@ import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   deleteCharacter,
-  fetchBook,
   fetchCharacter,
   refineCharacter,
+  resetCharacterReading,
   setCharacterListMembers,
   updateCharacter,
   useCharacterLists,
 } from "@/lib/api";
+import BookAdder, { type AddedBook } from "@/components/BookAdder";
+import ImageEditor from "@/components/ImageEditor";
+import SourceList from "@/components/SourceList";
 import type { Character, CharacterEvidence, CharacterInput } from "@/types/character";
-import { BookIcon, LockIcon, ClearIcon, TrashIcon, EditIcon, SparklesIcon } from "@/components/icons";
+import { LockIcon, ClearIcon, TrashIcon, EditIcon, SparklesIcon } from "@/components/icons";
 
 // Human names for the lockable fields, as the edit form labels them.
 const FIELD_LABELS: Record<string, string> = {
@@ -39,10 +42,16 @@ function EvidencePanel({
   evidence,
   locked,
   onUnlock,
+  onReadAgain,
+  message,
+  busy,
 }: {
   evidence?: CharacterEvidence | null;
   locked: string[];
   onUnlock: (field: string) => void;
+  onReadAgain: () => void;
+  message: string;
+  busy: boolean;
 }) {
   return (
     <div className="space-y-2 rounded-xl p-3 text-xs bg-card shadow-sm shadow-border">
@@ -56,6 +65,18 @@ function EvidencePanel({
       ) : (
         <p className="italic text-muted">Made before evidence was recorded, refine to rebuild it.</p>
       )}
+      {evidence && (
+        <button
+          type="button"
+          onClick={onReadAgain}
+          disabled={busy}
+          title="Mark every passage unread, so the next refine can read from the start. Nothing is deleted."
+          className="cursor-pointer rounded-full border border-background px-2 py-1 leading-3 text-muted transition-colors hover:border-border hover:text-foreground disabled:opacity-50"
+        >
+          ↺ Read everything again
+        </button>
+      )}
+      {message && <p className="text-muted">{message}</p>}
       {locked.length > 0 && (
         <div>
           <p className="text-muted">Locked fields</p>
@@ -91,53 +112,6 @@ function fromLines(value: string) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-/**
- * Source books, shown by title. Titles come from one query for the whole set so a
- * profile with three sources still makes a single render pass; each falls back to
- * its Calibre id until the lookup lands (or if the book is missing).
- */
-function SourceBooks({ ids }: { ids: number[] }) {
-  const { data } = useQuery({
-    queryKey: ["books", "sources", ids],
-    queryFn: async () => {
-      const books = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const book = await fetchBook(id);
-            return { id, title: String(book.title || `#${id}`) };
-          } catch {
-            return { id, title: `#${id}` };
-          }
-        })
-      );
-      return books;
-    },
-    enabled: ids.length > 0,
-    staleTime: 5 * 60_000,
-  });
-
-  if (ids.length === 0) {
-    return <p className="italic text-muted">None yet</p>;
-  }
-
-  const books = data ?? ids.map((id) => ({ id, title: `#${id}` }));
-
-  return (
-    <div className="mt-1 flex flex-wrap items-center w-full gap-1">
-      {books.map(({ id, title }) => (
-        <Link
-          key={id}
-          href={`/book/${id}`}
-          title={`Calibre #${id}`}
-          className="max-w-full truncate text-xs border border-background text-muted px-2 py-1 rounded-full transition-colors leading-3 hover:text-foreground hover:border-border"
-        >
-          <BookIcon className="w-4 h-4 inline mr-0.5" /> {title}
-        </Link>
-      ))}
-    </div>
-  );
 }
 
 /** Tick the character lists this profile belongs to. Character lists only — never book lists. */
@@ -272,6 +246,7 @@ export default function CharacterDetailPage() {
   const [refineStatus, setRefineStatus] = useState("");
   const [refineError, setRefineError] = useState("");
   const [revisionNotes, setRevisionNotes] = useState<string[]>([]);
+  const [addedBooks, setAddedBooks] = useState<AddedBook[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const refineAbort = useRef<AbortController | null>(null);
 
@@ -301,6 +276,21 @@ export default function CharacterDetailPage() {
     },
   });
 
+  const [memoryNote, setMemoryNote] = useState("");
+  const resetMut = useMutation({
+    mutationFn: (calibreId?: number) => resetCharacterReading(characterId, { calibre_id: calibreId }),
+    onSuccess: (result, calibreId) => {
+      queryClient.setQueryData(["character", characterId], result.character);
+      queryClient.invalidateQueries({ queryKey: ["characters"] });
+      setMemoryNote(
+        `${result.unread_passages} passage${result.unread_passages === 1 ? "" : "s"} from ${
+          calibreId === undefined ? "every book" : "that book"
+        } marked unread. The profile and its observations are untouched; refine to read them again.`
+      );
+    },
+    onError: () => setMemoryNote("Couldn't reset."),
+  });
+
   const unlockMut = useMutation({
     mutationFn: (lockedFields: string[]) => updateCharacter(characterId, { locked_fields: lockedFields }),
     onSuccess: (saved) => queryClient.setQueryData(["character", characterId], saved),
@@ -316,7 +306,13 @@ export default function CharacterDetailPage() {
     let refined = false;
     let failed = false;
     try {
-      for await (const event of refineCharacter(characterId, refineNotes, abort.signal)) {
+      const requested = addedBooks;
+      for await (const event of refineCharacter(
+        characterId,
+        refineNotes,
+        abort.signal,
+        requested.map((b) => b.id)
+      )) {
         if (event.kind === "progress") {
           setRefineStatus(event.message);
         } else if (event.kind === "ok") {
@@ -324,7 +320,14 @@ export default function CharacterDetailPage() {
           queryClient.setQueryData(["character", characterId], event.character);
           queryClient.invalidateQueries({ queryKey: ["characters"] });
           setRefineStatus("Refined");
-          setRevisionNotes(event.notes ?? []);
+          // Books the character never appears in are not made sources: say which.
+          const skipped = requested.filter((b) => event.skippedBooks?.includes(b.id));
+          setRevisionNotes([
+            ...(event.notes ?? []),
+            ...skipped.map((b) => `${event.character.name} doesn't appear in “${b.title}”, so it was not added as a source.`),
+          ]);
+          queryClient.invalidateQueries({ queryKey: ["books", "sources"] });
+          setAddedBooks([]);
           setRefineNotes("");
         } else if (event.kind === "profile_error") {
           failed = true;
@@ -417,8 +420,8 @@ export default function CharacterDetailPage() {
               <button
                 type="button"
                 onClick={() => setRefineOpen((open) => !open)}
-                disabled={refining || character.source_book_ids.length === 0}
-                title="Read more of the source books and review this sheet against all the evidence"
+                disabled={refining}
+                title="Read more of the source books (or add new ones) and review this sheet against all the evidence"
                 className="flex gap-2 items-center rounded-lg cursor-pointer bg-card hover:bg-highlight hover:text-background px-4 py-2.5 text-sm font-medium transition-colors disabled:bg-muted disabled:cursor-not-allowed disabled:text-foreground"
               >
                 <SparklesIcon /> {refining ? "Refining…" : "Refine"}
@@ -455,9 +458,16 @@ export default function CharacterDetailPage() {
               Reads passages earlier passes skipped (the least-covered parts of the story first), adds them to the
               evidence already gathered, and rewrites the sheet from all of it — what recurs across the story leads,
               what only holds for part of it goes to the arc, one-off moments drop out. Fields you edited by hand are
-              kept, so lock anything you like before refining. Takes a few minutes.
+              kept, so lock anything you like before refining. Add books to look for this character in new sources: a book
+              becomes a source only if they appear in it. Takes a few minutes.
             </p>
           </div>
+          <BookAdder
+            added={addedBooks}
+            onChange={setAddedBooks}
+            excludeIds={character.source_book_ids}
+            disabled={refining}
+          />
           <textarea
             value={refineNotes}
             onChange={(e) => setRefineNotes(e.target.value)}
@@ -537,14 +547,25 @@ export default function CharacterDetailPage() {
             sheet, where pinning it would hide the profile. It scrolls internally when
             the panels outgrow the viewport. */}
         <aside className="space-y-4 self-start lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto">
-          <div className="aspect-[2/3] overflow-hidden rounded-xl bg-card shadow-sm shadow-border">
-            {character.thumbnail ? (
-              <img src={character.thumbnail} alt={character.name} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-muted">
-                No thumbnail
-              </div>
-            )}
+          <div className="space-y-2">
+            <div className="aspect-[2/3] overflow-hidden rounded-xl bg-card shadow-sm shadow-border">
+              {character.thumbnail ? (
+                <img src={character.thumbnail} alt={character.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-muted">
+                  No thumbnail
+                </div>
+              )}
+            </div>
+            <ImageEditor
+              hasImage={Boolean(character.thumbnail)}
+              resetLabel="Remove image"
+              onChange={async (url) => {
+                const saved = await updateCharacter(characterId, { thumbnail: url });
+                queryClient.setQueryData(["character", characterId], saved);
+                queryClient.invalidateQueries({ queryKey: ["characters"] });
+              }}
+            />
           </div>
 
           <div className="space-y-2 rounded-xl bg-card shadow-border shadow-sm p-3 text-xs">
@@ -563,7 +584,12 @@ export default function CharacterDetailPage() {
 
             <div className="flex flex-wrap gap-1.5 items-center">
               <p className="text-muted">Sources:</p>
-              <SourceBooks ids={character.source_book_ids} />
+              <SourceList
+                ids={character.source_book_ids}
+                busy={resetMut.isPending}
+                empty="None yet"
+                onReset={(id) => resetMut.mutate(id)}
+              />
             </div>
           </div>
 
@@ -571,6 +597,9 @@ export default function CharacterDetailPage() {
             evidence={character.evidence}
             locked={character.locked_fields ?? []}
             onUnlock={(field) => unlockMut.mutate((character.locked_fields ?? []).filter((f) => f !== field))}
+            busy={resetMut.isPending}
+            message={memoryNote}
+            onReadAgain={() => resetMut.mutate(undefined)}
           />
 
           <CharacterLists characterId={character.id} />

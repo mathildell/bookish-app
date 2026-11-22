@@ -20,8 +20,11 @@ from backend.schemas import (
     DiscoverRequest,
     ProfilesRequest,
     RefineRequest,
+    ResetMemoryRequest,
 )
 from backend.sse import stream_from_thread
+from lib.book_text import load_corpus
+from lib.character_extractor import _squash
 
 router = APIRouter()
 
@@ -139,19 +142,68 @@ async def refine_character(character_id: int, req: RefineRequest, request: Reque
     character = await asyncio.to_thread(store.get, character_id)
     if not character:
         raise _not_found()
-    if not character.get("source_book_ids"):
-        raise HTTPException(status_code=400, detail="This profile has no source books to read")
-    calibre_ids = await asyncio.to_thread(_reading_order, character["source_book_ids"])
+    have = set(character.get("source_book_ids") or [])
+    added = [int(c) for c in dict.fromkeys(req.calibre_ids) if int(c) not in have]
+    if not have and not added:
+        raise HTTPException(status_code=400, detail="This profile has no source books to read — add some first")
+    calibre_ids = await asyncio.to_thread(_reading_order, [*have, *added])
 
     def producer(emit, stopped):
         for event in extractor.refine(character, calibre_ids, req.guidance):
             if stopped.is_set():
                 return
             if event.get("event") == "ok":
-                event["character"] = _save_generated(store, character_id, event.pop("profile"))
+                profile = event.pop("profile")
+                # An added book is a source only if the character turned up in it:
+                # sources are where the evidence came from, not where we looked.
+                seen = {o.get("book_id") for o in (profile.get("analysis") or {}).get("observations") or []}
+                contributed = [b for b in added if b in seen]
+                event["skipped_books"] = [b for b in added if b not in seen]
+                if contributed:
+                    profile["source_book_ids"] = sorted(have | set(contributed))
+                event["character"] = _save_generated(store, character_id, profile)
             emit(event)
 
     return stream_from_thread(request, producer, name="characters", error_as_event=False)
+
+
+@router.post("/characters/{character_id}/reset")
+async def reset_character_reading(character_id: int, req: ResetMemoryRequest):
+    """Mark passages unread (one book, or all) so the next refine can read them again.
+
+    Non-destructive: the profile and every observation already recorded are kept. Only
+    the list of paragraphs already read is cleared, which is what makes a refine skip
+    them. Re-reading yields observations that merge with the stored ones.
+    """
+    store = _store()
+    character = await asyncio.to_thread(store.get, character_id)
+    if not character:
+        raise _not_found()
+    analysis = dict(character.get("analysis") or {})
+    used = list(analysis.get("used") or [])
+
+    if req.calibre_id is None:
+        analysis["used"] = []
+    else:
+        # `used` holds text fingerprints, not book ids: recompute this book's from its text.
+        try:
+            extractor = await asyncio.to_thread(deps.get_character_extractor)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        corpus = await asyncio.to_thread(load_corpus, extractor.chat.collection, [int(req.calibre_id)])
+        theirs = {
+            _squash(para)[:160]
+            for chunk in corpus.chunks
+            for para in (p.strip() for p in chunk.text.split("\n"))
+            if para
+        }
+        analysis["used"] = [f for f in used if f not in theirs]
+
+    saved = await asyncio.to_thread(store.update, character_id, {"analysis": analysis})
+    return {
+        "character": saved,
+        "unread_passages": len(used) - len((saved.get("analysis") or {}).get("used") or []),
+    }
 
 
 # Generated fields a hand edit locks. Name, aliases, role and sources are identity,
@@ -202,15 +254,10 @@ def _titles(calibre_ids: list[int]) -> dict[int, str]:
     reader = deps.get_reader()
     if reader is None:
         return {}
-    titles: dict[int, str] = {}
-    for calibre_id in calibre_ids:
-        try:
-            record = reader.get_book_by_id(calibre_id)
-            if record:
-                titles[int(calibre_id)] = record.title
-        except Exception:  # a missing book must not abort discovery
-            continue
-    return titles
+    try:
+        return {int(k): v["title"] for k, v in reader.get_titles(calibre_ids).items()}
+    except Exception:  # a missing title must not abort discovery
+        return {}
 
 
 def _annotate(store, candidates: list[dict]) -> list[dict]:

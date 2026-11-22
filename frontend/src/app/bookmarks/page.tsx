@@ -14,6 +14,7 @@ import { fmtDate } from "@/lib/format";
 /** How much of the library the answer was actually grounded in. */
 function scopeLabel(bookmark: Bookmark) {
   if (bookmark.scope === "write") return "written scene";
+  if (bookmark.scope === "discuss") return "discussion";
   const n = bookmark.calibre_ids?.length ?? 0;
   if (n === 0) return "whole library";
   if (n === 1) return "1 book";
@@ -21,7 +22,8 @@ function scopeLabel(bookmark: Bookmark) {
 }
 
 function chatHref(bookmark: Bookmark) {
-  if (bookmark.scope === "write") return "/write";
+  if (bookmark.scope === "write") return "/write?tab=prose";
+  if (bookmark.scope === "discuss") return "/write";
   const ids = bookmark.calibre_ids ?? [];
   return ids.length ? `/chat?ids=${ids.join(",")}` : "/chat";
 }
@@ -42,6 +44,11 @@ export default function BookmarksPage() {
 
   const noteMut = useMutation({
     mutationFn: ({ id, note }: { id: number; note: string }) => updateBookmark(id, { note }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bookmarks"] }),
+  });
+
+  const pinMut = useMutation({
+    mutationFn: ({ id, pinned }: { id: number; pinned: boolean }) => updateBookmark(id, { pinned }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bookmarks"] }),
   });
 
@@ -99,6 +106,7 @@ export default function BookmarksPage() {
               bookmark={bookmark}
               onDelete={() => removeMut.mutate(bookmark.id)}
               onSaveNote={(note) => noteMut.mutate({ id: bookmark.id, note })}
+              onTogglePin={() => pinMut.mutate({ id: bookmark.id, pinned: !bookmark.pinned })}
             />
           ))}
         </div>
@@ -111,17 +119,38 @@ function BookmarkCard({
   bookmark,
   onDelete,
   onSaveNote,
+  onTogglePin,
 }: {
   bookmark: Bookmark;
   onDelete: () => void;
   onSaveNote: (note: string) => void;
+  onTogglePin: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState(bookmark.note ?? "");
 
   return (
     <article className="mb-4 break-inside-avoid rounded-xl shadow-sm shadow-border bg-card p-4 space-y-3">
-      <p className="text-xs uppercase tracking-wider text-muted">In response to</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs uppercase tracking-wider text-muted">In response to</p>
+        <button
+          type="button"
+          onClick={onTogglePin}
+          aria-pressed={Boolean(bookmark.pinned)}
+          title={
+            bookmark.pinned
+              ? "Pinned: the Write and Discuss models treat this as established canon. Click to unpin."
+              : "Pin as a note: the Write and Discuss models will treat this as established canon"
+          }
+          className={`cursor-pointer rounded-full border px-2 py-0.5 text-xs leading-3 transition-colors ${
+            bookmark.pinned
+              ? "border-accent bg-accent/20 text-foreground"
+              : "border-background text-muted hover:border-border hover:text-foreground"
+          }`}
+        >
+          {bookmark.pinned ? "Pinned ✓" : "Pin as note"}
+        </button>
+      </div>
       <blockquote className="text-sm leading-snug border-l border-l-4 border-accent pl-4">
         {bookmark.question ? `“${bookmark.question}”` : "(question not recorded)"}
       </blockquote>
@@ -177,7 +206,7 @@ function BookmarkCard({
             if (note !== (bookmark.note ?? "")) onSaveNote(note);
           }}
           rows={2}
-          placeholder="Add a note…"
+          placeholder={bookmark.pinned ? "Note for the writing model (replaces the answer when pinned)…" : "Add a note…"}
           className="w-full bg-background shadow-sm shadow-border rounded-lg px-2 py-1.5 text-xs placeholder-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent focus:border-yellow"
         />
       </div>

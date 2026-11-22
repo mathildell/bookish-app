@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { ChatMessage, Citation } from "@/types/book";
-import { createBookmark, deleteBookmark, streamChat } from "@/lib/api";
+import { createBookmark, deleteBookmark, streamChat, useOllamaHealth } from "@/lib/api";
+import OllamaWarning from "@/components/OllamaWarning";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
@@ -52,6 +53,10 @@ export default function ChatInterface({
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // A prompt against an unreachable host just hangs: gate the input instead.
+  const { data: ollamaHealth } = useOllamaHealth();
+  const ollamaDown = ollamaHealth?.ok === false;
+
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
@@ -60,7 +65,7 @@ export default function ChatInterface({
   }, [messages]);
 
   const send = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || ollamaDown) return;
 
     const userMsg: ChatMessage = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMsg]);
@@ -117,7 +122,7 @@ export default function ChatInterface({
     } finally {
       setIsStreaming(false);
     }
-  }, [input, isStreaming, messages, calibreIds, scope]);
+  }, [input, isStreaming, ollamaDown, messages, calibreIds, scope]);
 
   // Bookmark toggle state: message index -> saved note id
   const [savedBookmarks, setSavedBookmarks] = useState<Record<number, number>>({});
@@ -220,7 +225,7 @@ export default function ChatInterface({
                 {msg.content && (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    className="w-full rounded-lg bg-card shadow-md shadow-border p-4 prose prose-invert prose-sm max-w-none [&_p]:leading-[1.25] [&_li]:leading-[1.25]"
+                    className="w-full rounded-lg bg-card shadow-md shadow-border p-4 prose prose-sm max-w-none [&_p]:leading-[1.25] [&_li]:leading-[1.25]"
                   >
                     {msg.content}
                   </ReactMarkdown>
@@ -288,6 +293,7 @@ export default function ChatInterface({
 
       {/* Input area */}
       <div className="flex-shrink-0 p-4">
+        {ollamaDown && <OllamaWarning host={ollamaHealth?.host} className="mb-2" />}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -299,13 +305,13 @@ export default function ChatInterface({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={placeholder}
-            disabled={isStreaming}
+            placeholder={ollamaDown ? "Ollama is unreachable…" : placeholder}
+            disabled={isStreaming || ollamaDown}
             className="flex-1 rounded-lg px-4 py-4 text-sm placeholder-muted focus:outline-none bg-card shadow-sm shadow-border focus:ring-2 focus:ring-accent disabled:opacity-50 shadow-sm shadow-border"
           />
           <button
             type="submit"
-            disabled={isStreaming || !input.trim()}
+            disabled={isStreaming || ollamaDown || !input.trim()}
             className="disabled:opacity-30 disabled:cursor-not-allowed transition-colors px-6 py-2.5 rounded-lg text-sm font-semibold cursor-pointer bg-card hover:bg-highlight hover:text-background"
           >
             {isStreaming ? "…" : "Send"}

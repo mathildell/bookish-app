@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import sqlite3
 from datetime import datetime
 from typing import Iterable, NamedTuple, Optional
@@ -76,8 +77,27 @@ class CalibreReader:
         self.db_path = os.path.expanduser(db_path)
         if not os.path.exists(self.db_path):
             raise FileNotFoundError(f"Calibre DB not found at {self.db_path}")
-        self._conn = self._connect()
+        # One connection per thread. FastAPI runs sync routes on a worker pool, and a
+        # sqlite3 connection shared by several threads fails under concurrent use
+        # ("bad parameter or other API misuse"), which surfaced as books whose
+        # metadata, titles included, randomly failed to load.
+        self._local = threading.local()
+        self._open: list[sqlite3.Connection] = []
+        self._open_lock = threading.Lock()
         self.library_root = self._get_library_root()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._conn = self._connect()
+        return conn
+
+    @_conn.setter
+    def _conn(self, conn: sqlite3.Connection) -> None:
+        self._local.conn = conn
+        with self._open_lock:
+            self._open.append(conn)
 
     # ------------------------------------------------------------------ #
     # Connection                                                         #
@@ -122,7 +142,13 @@ class CalibreReader:
             raise
 
     def close(self):
-        self._conn.close()
+        with self._open_lock:
+            conns, self._open = self._open, []
+        for conn in conns:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 — another thread may own it; the process is exiting
+                pass
 
     def _cover_path(self, row: sqlite3.Row) -> Optional[str]:
         """cover.jpg inside the book's folder, for a `books` row with has_cover/path."""
@@ -301,6 +327,38 @@ class CalibreReader:
     # ------------------------------------------------------------------ #
     # Full record for one book                                           #
     # ------------------------------------------------------------------ #
+
+    def get_cover_paths(self, ids: list[int]) -> dict[int, str]:
+        """{id: path of cover.jpg} for the books that have a cover, in two cheap queries."""
+        wanted = list(dict.fromkeys(int(i) for i in ids))
+        paths: dict[int, str] = {}
+        for start in range(0, len(wanted), 400):
+            chunk = wanted[start : start + 400]
+            marks = ",".join("?" for _ in chunk)
+            for row in self._rows(
+                f"SELECT id, has_cover, path FROM books WHERE id IN ({marks})", tuple(chunk)
+            ):
+                cover = self._cover_path(row)
+                if cover:
+                    paths[int(row["id"])] = cover
+        return paths
+
+    def get_titles(self, ids: list[int]) -> dict[int, dict]:
+        """{id: {"title", "authors"}} for the given books, in a couple of queries.
+
+        The full record costs about twenty queries over the network share plus a cover
+        decode, which is far too much to show a book's name.
+        """
+        wanted = list(dict.fromkeys(int(i) for i in ids))
+        found: dict[int, dict] = {}
+        for start in range(0, len(wanted), 400):  # stay under SQLite's variable limit
+            chunk = wanted[start : start + 400]
+            marks = ",".join("?" for _ in chunk)
+            rows = self._rows(f"SELECT id, title FROM books WHERE id IN ({marks})", tuple(chunk))
+            authors = self._authors_by_book([r["id"] for r in rows])
+            for r in rows:
+                found[int(r["id"])] = {"title": r["title"], "authors": authors.get(r["id"], [])}
+        return found
 
     def get_book_by_id(self, calibre_id: int) -> Optional[BookRecord]:
         row = self._exec(

@@ -26,7 +26,7 @@ def create_bookmark(req: BookmarkCreate):
     if not answer:
         raise HTTPException(status_code=400, detail="Answer is required")
 
-    return bookmarks.add(
+    record = bookmarks.add(
         {
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "question": question,
@@ -36,20 +36,34 @@ def create_bookmark(req: BookmarkCreate):
             "calibre_ids": [int(i) for i in req.calibre_ids],
             "note": req.note.strip(),
             "color": req.color or DEFAULT_COLOR,
+            "pinned": req.pinned,
         },
         existing=lambda b: b.get("question") == question and b.get("answer") == answer,
     )
 
+    # Saving is idempotent, but pinning (or a note) on a copy that already exists must stick.
+    def merge(item: dict) -> None:
+        if req.pinned:
+            item["pinned"] = True
+        if req.note.strip():
+            item["note"] = req.note.strip()
+
+    if (req.pinned and not record.get("pinned")) or (req.note.strip() and record.get("note") != req.note.strip()):
+        record = bookmarks.update(record["id"], merge) or record
+    return record
+
 
 @router.patch("/bookmarks/{bookmark_id}")
 def update_bookmark(bookmark_id: int, req: BookmarkUpdate):
-    """Patch a note's user-written text or colour."""
+    """Patch a bookmark's user-written note, colour or pinned flag."""
 
     def apply(item: dict) -> None:
         if req.note is not None:
             item["note"] = req.note.strip()
         if req.color is not None:
             item["color"] = req.color
+        if req.pinned is not None:
+            item["pinned"] = req.pinned
 
     updated = bookmarks.update(bookmark_id, apply)
     if updated is None:

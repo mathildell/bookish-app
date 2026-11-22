@@ -50,7 +50,7 @@ export default function CharacterListSidebar({
       shortcut={(list) =>
         list.ids.length > 0 ? (
           <Link
-            href={{ pathname: "/write", query: { chars: list.ids.join(",") } }}
+            href={{ pathname: "/write", query: { chars: list.ids.join(","), tab: "prose" } }}
             title={`Write a scene with the ${list.ids.length} character${
               list.ids.length === 1 ? "" : "s"
             } in "${list.name}"`}

@@ -41,6 +41,8 @@ _ingestor = None
 _chat_engine = None
 _character_store = None
 _character_extractor = None
+_world_store = None
+_world_extractor = None
 _indexed_ids: set[int] = set()
 _chroma_ok = False
 _chroma_initialized = False
@@ -74,6 +76,9 @@ _CONFIG_LAYOUT: dict[str, dict[str, str]] = {
     "writing": {
         "temperature": "writing_temperature",
         "top_p": "writing_top_p",
+        "min_p": "writing_min_p",
+        "repeat_penalty": "writing_repeat_penalty",
+        "num_ctx": "writing_num_ctx",
         "num_predict": "writing_num_predict",
     },
     "ingestion": {
@@ -315,6 +320,27 @@ def get_character_store():
     return _character_store
 
 
+def get_world_store():
+    """Lazily open data/worlds.db — no ChromaDB or Ollama needed."""
+    global _world_store
+    if _world_store is None:
+        from lib.worlds import WorldStore
+
+        _world_store = WorldStore(DATA_DIR / "worlds.db")
+    return _world_store
+
+
+def get_world_extractor():
+    """World extraction shares the character extractor's corpus and Ollama client."""
+    global _world_extractor
+    extractor = get_character_extractor()
+    if _world_extractor is None:
+        from lib.world_extractor import WorldExtractor
+
+        _world_extractor = WorldExtractor(extractor)
+    return _world_extractor
+
+
 # --------------------------------------------------------------------------- #
 # Lifecycle                                                                   #
 # --------------------------------------------------------------------------- #
@@ -323,6 +349,7 @@ def init_services() -> None:
     """(Re)load settings and reset every service built from them."""
     global _settings, _reader, _writer, _indexed_ids, _chroma_ok
     global _ingestor, _chat_engine, _chroma_initialized, _character_store, _character_extractor
+    global _world_store, _world_extractor
 
     _settings = load_settings()
 
@@ -332,6 +359,8 @@ def init_services() -> None:
     _chat_engine = None
     _character_store = None
     _character_extractor = None
+    _world_store = None
+    _world_extractor = None
     _chroma_ok = False
     _chroma_initialized = False
 

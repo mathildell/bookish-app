@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel
 
 from backend import dependencies as deps
+from backend import images
 from backend.schemas import BookCard, BookDetail, BooksListResponse
 from backend.storage import book_lists
 from lib.calibre_reader import CardRow
@@ -194,6 +196,45 @@ def get_filter_metadata():
         return {"statuses": reader.get_statuses()}
     except Exception:
         return {"statuses": []}
+
+
+@router.get("/books/titles")
+def get_book_titles(ids: str = Query("", description="Comma-separated Calibre ids")):
+    """Titles and authors for several books at once: {"<id>": {"title", "authors"}}.
+
+    Ids with no matching book are left out. This is the cheap way to label books by
+    name; `/books/{id}` builds the whole record, cover and review included.
+    """
+    try:
+        wanted = [int(x) for x in ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ids must be comma-separated integers")
+    found = deps.require_reader().get_titles(wanted[:500])
+    return {str(k): v for k, v in found.items()}
+
+
+@router.get("/books/collage")
+def get_cover_collage(ids: str = Query("", description="Comma-separated Calibre ids")):
+    """A 2:3 collage of up to four of these books' covers, as a JPEG.
+
+    The default picture for a sheet built from books. Rendered once and cached as a
+    file, since the same set of books always yields the same image.
+    """
+    try:
+        wanted = [int(x) for x in ids.split(",") if x.strip()][:4]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ids must be comma-separated integers")
+    if not wanted:
+        raise HTTPException(status_code=404, detail="No books given")
+
+    target = images.images_dir() / images.collage_name(wanted)
+    if not target.exists():
+        found = deps.require_reader().get_cover_paths(wanted)
+        data = images.build_collage([found[i] for i in wanted if i in found])
+        if data is None:
+            raise HTTPException(status_code=404, detail="None of these books has a cover")
+        target.write_bytes(data)
+    return FileResponse(target, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/books/{calibre_id}", response_model=BookDetail)

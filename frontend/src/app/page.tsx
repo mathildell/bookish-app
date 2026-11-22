@@ -10,7 +10,7 @@ import type { Filters } from "@/components/FilterSidebar";
 import Link from "next/link";
 import { batchIndexBooks, createList, setListBooks, unindexBook, useBookLists, type BatchIndexEvent } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChatIcon, CharacterIcon, IndexAdd, IndexRemove, ListAdd, ListRemove, FolderAdd, ClearIcon } from "@/components/icons";
+import { ChatIcon, CharacterIcon, WorldIcon, IndexAdd, IndexRemove, ListAdd, ListRemove, FolderAdd, ClearIcon } from "@/components/icons";
 
 // Height of the sticky nav (h-14 + pt-2 + 1px border) — the header sticks just below it.
 const NAV_HEIGHT = 65;
@@ -377,6 +377,16 @@ export default function LibraryPage() {
               disabled={selectedUnindexed.length > 0}
             >
               <CharacterIcon />
+            </RailAction>
+
+            {/* Extract a worldbuilding sheet (e.g. an omegaverse) from the selection */}
+            <RailAction
+              href={{ pathname: "/worlds/extract", query: { ids: selectedIds.join(",") } }}
+              label={`Extract a world from ${selectionLabel}`}
+              hint="Index these books first — worlds are read from the search index"
+              disabled={selectedUnindexed.length > 0}
+            >
+              <WorldIcon />
             </RailAction>
 
             {/* Index only the selected books that are not indexed yet */}

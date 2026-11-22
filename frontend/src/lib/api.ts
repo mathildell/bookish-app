@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ArcBook, BookDetail, BooksListResponse, Citation, FilterMetadata } from "@/types/book";
 import type { Character, CharacterInput } from "@/types/character";
 import type { AppSettings, OllamaModelList } from "@/types/settings";
+import type { World, WorldInput } from "@/types/world";
 
 const BASE = "/api";
 
@@ -136,6 +137,36 @@ export function fetchBook(id: number): Promise<BookDetail> {
   return request(`/books/${id}`, { error: "Book not found" });
 }
 
+export type BookTitle = { title: string; authors: string[] };
+
+/** Titles and authors for several books in one cheap request (no cover, no review). */
+export function fetchBookTitles(ids: number[]): Promise<Record<string, BookTitle>> {
+  return request(`/books/titles${qs({ ids: ids.join(",") })}`, {
+    error: "Failed to load book titles",
+    timeoutMs: 30_000,
+  });
+}
+
+/**
+ * Book titles for a set of ids, loaded together. A failed lookup is retried and never
+ * cached as an answer, so a name can't get stuck as its id; `titleOf` shows an ellipsis
+ * while loading and "Book #id" only for an id the library really has no record of.
+ */
+export function useBookTitles(ids: number[]) {
+  const key = [...new Set(ids)].sort((a, b) => a - b);
+  const query = useQuery({
+    queryKey: ["bookTitles", key.join(",")],
+    queryFn: () => fetchBookTitles(key),
+    enabled: key.length > 0,
+    staleTime: 10 * 60_000,
+    retry: 4,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+  });
+  const titleOf = (id: number): string =>
+    query.data?.[String(id)]?.title ?? (query.isError || query.data ? `Book #${id}` : "…");
+  return { titleOf, isPending: query.isPending, isError: query.isError, refetch: query.refetch };
+}
+
 export function fetchFilterMetadata(): Promise<FilterMetadata> {
   return request("/books/filters/metadata", { error: "Failed to fetch filters" });
 }
@@ -169,6 +200,22 @@ export type SettingsSummary = Pick<AppSettings, "genre_colors" | "calibre_url">;
 export async function fetchSettingsSummary(): Promise<SettingsSummary> {
   const data = await fetchSettings();
   return { genre_colors: data.genre_colors ?? {}, calibre_url: data.calibre_url ?? "" };
+}
+
+export type OllamaHealth = { ok: boolean; host: string; error: string | null };
+
+export function fetchOllamaHealth(): Promise<OllamaHealth> {
+  return request("/ollama/health", { error: "Could not check the Ollama host", timeoutMs: 10_000 });
+}
+
+/** Polls the configured Ollama host so the chat and writing inputs can be disabled while it is down. */
+export function useOllamaHealth() {
+  return useQuery({
+    queryKey: ["ollamaHealth"],
+    queryFn: fetchOllamaHealth,
+    refetchInterval: 20_000,
+    retry: 1,
+  });
 }
 
 // ----- Index / unindex -----
@@ -330,9 +377,20 @@ export type BookmarkInput = {
   calibre_ids: number[];
   note?: string;
   color?: string;
+  /** Pinned bookmarks are sent to the Write / Discuss model as story notes. */
+  pinned?: boolean;
 };
 
 export type Bookmark = Required<BookmarkInput> & { id: number; created_at: string };
+
+/** The text a pinned bookmark contributes to a prompt: the user's note if there is one. */
+export function bookmarkNoteText(b: Bookmark, maxChars = 700): string {
+  const note = (b.note ?? "").trim();
+  if (note) return note;
+  const answer = b.answer.trim();
+  const body = answer.length > maxChars ? `${answer.slice(0, maxChars).trimEnd()}…` : answer;
+  return b.scope === "write" ? `Scene already written: ${body}` : body;
+}
 
 export function fetchBookmarks(): Promise<Bookmark[]> {
   return request("/bookmarks", { error: "Failed to fetch bookmarks" });
@@ -342,7 +400,14 @@ export function createBookmark(payload: BookmarkInput): Promise<Bookmark> {
   return request("/bookmarks", { method: "POST", body: payload, error: "Failed to save bookmark" });
 }
 
-export function updateBookmark(id: number, patch: { note?: string; color?: string }): Promise<Bookmark> {
+export function useBookmarks() {
+  return useQuery({ queryKey: ["bookmarks"], queryFn: fetchBookmarks });
+}
+
+export function updateBookmark(
+  id: number,
+  patch: { note?: string; color?: string; pinned?: boolean }
+): Promise<Bookmark> {
   return request(`/bookmarks/${id}`, { method: "PATCH", body: patch, error: "Failed to update bookmark" });
 }
 
@@ -360,13 +425,19 @@ export type SceneEvent =
   | { kind: "done"; answer: string; suggestions: string[] }
   | { kind: "error"; error: string };
 
-export async function* streamScene(payload: {
-  message: string;
-  history: SceneTurn[];
+/** What a prose or discussion request is given besides the conversation itself. */
+export type SceneContext = {
   character_ids: number[];
-  genre: string;
-}): AsyncGenerator<SceneEvent> {
-  const body = await openStream("/write/stream", payload, "Writing failed");
+  world_ids: number[];
+  /** Pinned facts the writer has settled; sent as established story canon. */
+  notes: string[];
+};
+
+export async function* streamScene(
+  payload: SceneContext & { message: string; history: SceneTurn[] },
+  path: "/write/stream" | "/write/discuss" = "/write/stream"
+): AsyncGenerator<SceneEvent> {
+  const body = await openStream(path, payload, path === "/write/discuss" ? "Discussion failed" : "Writing failed");
   for await (const data of readSse(body)) {
     if (typeof data.token === "string") yield { kind: "token", text: data.token };
     else if (typeof data.thinking === "string") yield { kind: "thinking", text: data.thinking };
@@ -376,16 +447,194 @@ export async function* streamScene(payload: {
   }
 }
 
-export async function regenerateSceneSuggestions(payload: {
-  character_ids: number[];
-  history: SceneTurn[];
-}): Promise<string[]> {
+export async function regenerateSceneSuggestions(
+  payload: SceneContext & { history: SceneTurn[]; mode?: "write" | "discuss" }
+): Promise<string[]> {
   const data = await request<{ suggestions?: string[] }>("/write/suggestions", {
     method: "POST",
     body: payload,
     error: "Failed to regenerate suggestions",
   });
   return data.suggestions ?? [];
+}
+
+export type SceneCard = { title: string; setting: string; conflict: string; brief: string };
+
+/** Scene cards planned from a discussion; each brief can be handed to the Write mode. */
+export async function planScenes(
+  payload: SceneContext & { message: string; history: SceneTurn[]; count?: number }
+): Promise<SceneCard[]> {
+  const data = await request<{ scenes?: SceneCard[] }>("/write/plan", {
+    method: "POST",
+    body: payload,
+    error: "Failed to plan scenes",
+    timeoutMs: 180_000,
+  });
+  return data.scenes ?? [];
+}
+
+/** Condense a discussion reply into a scene brief or a one-line story note. */
+export async function distillReply(payload: {
+  content: string;
+  kind: "brief" | "note";
+  character_ids: number[];
+}): Promise<string> {
+  const data = await request<{ text?: string }>("/write/distill", {
+    method: "POST",
+    body: payload,
+    error: "Failed to condense that reply",
+    timeoutMs: 120_000,
+  });
+  return data.text ?? "";
+}
+
+// ----- Images -----
+
+/** Read a file as a data URL. */
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Couldn't read that file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Upload a picture for a sheet; the server fits it to a tile and returns its URL. */
+export async function uploadImage(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("That file is not an image");
+  const data = await readAsDataUrl(file);
+  const res = await request<{ url: string }>("/images", {
+    method: "POST",
+    body: { data },
+    error: "Couldn't upload that image",
+    timeoutMs: 60_000,
+  });
+  return res.url;
+}
+
+/** The default picture for a sheet built from books: a collage of up to four covers. */
+export function collageUrl(bookIds: number[]): string | null {
+  const ids = bookIds.slice(0, 4);
+  return ids.length ? `${BASE}/books/collage?ids=${ids.join(",")}` : null;
+}
+
+// ----- Worlds -----
+
+export function fetchWorlds(params: { q?: string } = {}): Promise<World[]> {
+  return request(`/worlds${qs({ q: params.q })}`, { error: "Failed to fetch worlds" });
+}
+
+export function fetchWorld(id: number): Promise<World> {
+  return request(`/worlds/${id}`, { error: "World not found" });
+}
+
+export function createWorld(payload: Partial<WorldInput> & { name: string }): Promise<World> {
+  return request("/worlds", { method: "POST", body: payload, error: "Failed to create world" });
+}
+
+export function updateWorld(id: number, patch: Partial<WorldInput>): Promise<World> {
+  return request(`/worlds/${id}`, { method: "PATCH", body: patch, error: "Failed to save world" });
+}
+
+export function deleteWorld(id: number): Promise<void> {
+  return request(`/worlds/${id}`, { method: "DELETE", error: "Failed to delete world" });
+}
+
+export type VariantResolution = { world: World; changes: string[]; locked_skipped?: string[] };
+
+/**
+ * Settle one "where sources differ" entry. The chosen version is adopted and the sheet is
+ * edited to agree with it; `dismiss` just drops the entry. Takes a model call to apply.
+ */
+export async function resolveWorldVariant(
+  id: number,
+  payload: { variant: string; decision?: string; dismiss?: boolean }
+): Promise<VariantResolution> {
+  const res = await fetch(`${BASE}/worlds/${id}/variants/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error((await errorDetail(res)) || "Couldn't apply that decision");
+  return res.json();
+}
+
+export type WorldReset = { world: World; unread_passages: number };
+
+/**
+ * Mark passages unread (one book, or all) so the next refine can read them again.
+ * Non-destructive: the sheet and the notes already taken are kept.
+ */
+export function resetWorldReading(id: number, payload: { calibre_id?: number }): Promise<WorldReset> {
+  return request(`/worlds/${id}/reset`, { method: "POST", body: payload, error: "Failed to reset" });
+}
+
+export type CharacterReset = { character: Character; unread_passages: number };
+
+/**
+ * Mark passages unread (one book, or all) so the next refine can read them again.
+ * Non-destructive: the profile and its recorded observations are kept.
+ */
+export function resetCharacterReading(id: number, payload: { calibre_id?: number }): Promise<CharacterReset> {
+  return request(`/characters/${id}/reset`, {
+    method: "POST",
+    body: payload,
+    error: "Failed to reset",
+    timeoutMs: 120_000,
+  });
+}
+
+export function useWorlds(q?: string) {
+  return useQuery({ queryKey: ["worlds", q ?? ""], queryFn: () => fetchWorlds({ q }) });
+}
+
+export type WorldExtractEvent =
+  | { kind: "progress"; message: string }
+  | { kind: "ok"; world: World }
+  | { kind: "error"; error: string };
+
+/** SSE: read the books, then save (or extend) the named world. */
+export function extractWorld(
+  payload: { name: string; calibre_ids: number[]; guidance: string },
+  signal?: AbortSignal
+): AsyncGenerator<WorldExtractEvent> {
+  return readWorldEvents("/worlds/extract", payload, "World extraction failed", signal);
+}
+
+/**
+ * Another pass over a saved world: reads passages earlier passes skipped, plus every
+ * passage of any newly added books (`calibre_ids`), and revises the sheet.
+ * Hand-edited fields are kept.
+ */
+export function refineWorld(
+  id: number,
+  payload: { guidance: string; calibre_ids: number[] },
+  signal?: AbortSignal
+): AsyncGenerator<WorldExtractEvent> {
+  return readWorldEvents(`/worlds/${id}/refine`, payload, "Refine failed", signal);
+}
+
+async function* readWorldEvents(
+  path: string,
+  payload: unknown,
+  error: string,
+  signal?: AbortSignal
+): AsyncGenerator<WorldExtractEvent> {
+  const body = await openStream(path, payload, error, signal);
+  for await (const data of readSse(body)) {
+    switch (String(data.event ?? "")) {
+      case "progress":
+        yield { kind: "progress", message: String(data.message ?? "") };
+        break;
+      case "ok":
+        yield { kind: "ok", world: data.world as World };
+        break;
+      case "error":
+        yield { kind: "error", error: String(data.error ?? "failed") };
+        break;
+    }
+  }
 }
 
 // ----- Characters -----
@@ -443,7 +692,7 @@ export type DiscoverEvent =
 export type ProfileEvent =
   | { kind: "started"; name: string }
   | { kind: "progress"; name: string; message: string }
-  | { kind: "ok"; name: string; character: Character; notes?: string[] }
+  | { kind: "ok"; name: string; character: Character; notes?: string[]; skippedBooks?: number[] }
   | { kind: "profile_error"; name: string; error: string }
   | { kind: "done" };
 
@@ -516,9 +765,16 @@ export async function* streamProfiles(
 export async function* refineCharacter(
   id: number,
   guidance = "",
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Extra books to read; each becomes a source if the character appears in it. */
+  calibreIds: number[] = []
 ): AsyncGenerator<ProfileEvent> {
-  const body = await openStream(`/characters/${id}/refine`, { guidance }, "Refine failed", signal);
+  const body = await openStream(
+    `/characters/${id}/refine`,
+    { guidance, calibre_ids: calibreIds },
+    "Refine failed",
+    signal
+  );
   for await (const data of readSse(body)) {
     const name = String(data.name ?? "");
     switch (String(data.event ?? "")) {
@@ -526,7 +782,13 @@ export async function* refineCharacter(
         yield { kind: "progress", name, message: String(data.message ?? "") };
         break;
       case "ok":
-        yield { kind: "ok", name, character: data.character as Character, notes: (data.notes ?? []) as string[] };
+        yield {
+          kind: "ok",
+          name,
+          character: data.character as Character,
+          notes: (data.notes ?? []) as string[],
+          skippedBooks: (data.skipped_books ?? []) as number[],
+        };
         break;
       case "error":
         yield { kind: "profile_error", name, error: String(data.error ?? "failed") };

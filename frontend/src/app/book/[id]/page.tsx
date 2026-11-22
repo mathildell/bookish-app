@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { indexBook, unindexBook, writeObsidianReview, fetchSettingsSummary } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
-import { CharacterIcon, ChatIcon } from "@/components/icons";
+import { WorldIcon, CharacterIcon, ChatIcon } from "@/components/icons";
 
 /* Calibre is READ-ONLY — the app must never write to the Calibre database.
    All note/field mutations go only to Obsidian review files or local state. */
@@ -129,6 +129,12 @@ function BookDetailContent({ book }: { book: BookDetail }) {
                 className="flex gap-2 items-center justify-center w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
               >
                 <CharacterIcon /> Extract characters
+              </Link>
+              <Link
+                href={`/worlds/extract?ids=${book.id}`}
+                className="flex gap-2 items-center justify-center w-full py-2 rounded-lg text-center text-sm font-semibold bg-card shadow-sm shadow-accent hover:shadow-none hover:bg-accent transition-colors"
+              >
+                <WorldIcon /> Extract world
               </Link>
             </>
           )}
